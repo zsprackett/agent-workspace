@@ -209,6 +209,9 @@ func AttachSession(name, title string, getStats func() (running, waiting, total 
 	exec.Command("tmux", "set-window-option", "-t", name, "pane-active-border-style", "bg=#1e1e2e,fg=#6c7086").Run()
 	exec.Command("tmux", "set-window-option", "-t", name, "pane-border-format", shortcuts).Run()
 
+	// Enable mouse for scrolling and text selection
+	exec.Command("tmux", "set-option", "-t", name, "mouse", "on").Run()
+
 	// Keep the file fresh; tmux re-reads it via #() on each status-interval tick
 	done := make(chan struct{})
 	go func() {
@@ -242,6 +245,7 @@ func AttachSession(name, title string, getStats func() (running, waiting, total 
 	exec.Command("tmux", "unbind-key", "-n", "C-f").Run()
 	exec.Command("tmux", "unbind-key", "-n", "C-p").Run()
 	exec.Command("tmux", "unbind-key", "-n", "C-n").Run()
+	exec.Command("tmux", "set-option", "-t", name, "mouse", "off").Run()
 	exec.Command("tmux", "set-window-option", "-t", name, "pane-border-status", "off").Run()
 	exec.Command("tmux", "set-window-option", "-u", "-t", name, "window-status-format").Run()
 	exec.Command("tmux", "set-window-option", "-u", "-t", name, "window-status-current-format").Run()
