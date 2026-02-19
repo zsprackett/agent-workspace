@@ -1,10 +1,12 @@
 package monitor
 
 import (
+	"encoding/json"
 	"sync"
 	"time"
 
 	"github.com/zsprackett/agent-workspace/internal/db"
+	"github.com/zsprackett/agent-workspace/internal/events"
 	"github.com/zsprackett/agent-workspace/internal/notify"
 	"github.com/zsprackett/agent-workspace/internal/tmux"
 )
@@ -12,23 +14,25 @@ import (
 type OnUpdate func()
 
 type Monitor struct {
-	db         *db.DB
-	onUpdate   OnUpdate
-	notifier   *notify.Notifier
-	prevStatus map[string]db.SessionStatus
-	interval   time.Duration
-	stop       chan struct{}
-	wg         sync.WaitGroup
+	db          *db.DB
+	onUpdate    OnUpdate
+	notifier    *notify.Notifier
+	broadcaster events.Broadcaster
+	prevStatus  map[string]db.SessionStatus
+	interval    time.Duration
+	stop        chan struct{}
+	wg          sync.WaitGroup
 }
 
-func New(store *db.DB, onUpdate OnUpdate, notifier *notify.Notifier) *Monitor {
+func New(store *db.DB, onUpdate OnUpdate, notifier *notify.Notifier, broadcaster events.Broadcaster) *Monitor {
 	return &Monitor{
-		db:         store,
-		onUpdate:   onUpdate,
-		notifier:   notifier,
-		prevStatus: make(map[string]db.SessionStatus),
-		interval:   500 * time.Millisecond,
-		stop:       make(chan struct{}),
+		db:          store,
+		onUpdate:    onUpdate,
+		notifier:    notifier,
+		broadcaster: broadcaster,
+		prevStatus:  make(map[string]db.SessionStatus),
+		interval:    500 * time.Millisecond,
+		stop:        make(chan struct{}),
 	}
 }
 
@@ -104,6 +108,14 @@ func (m *Monitor) refresh() {
 			prev := m.prevStatus[s.ID]
 			m.db.WriteStatus(s.ID, newStatus, s.Tool)
 			changed = true
+			detail, _ := json.Marshal(map[string]string{"from": string(s.Status), "to": string(newStatus)})
+			m.db.InsertSessionEvent(s.ID, "status_changed", string(detail))
+			m.broadcast(events.Event{
+				Type:      "status_changed",
+				SessionID: s.ID,
+				Status:    newStatus,
+				Title:     s.Title,
+			})
 			if newStatus == db.StatusWaiting && prev != db.StatusWaiting {
 				s.Status = newStatus
 				m.notifier.Notify(*s)
@@ -117,5 +129,11 @@ func (m *Monitor) refresh() {
 		if m.onUpdate != nil {
 			m.onUpdate()
 		}
+	}
+}
+
+func (m *Monitor) broadcast(e events.Event) {
+	if m.broadcaster != nil {
+		m.broadcaster.Broadcast(e)
 	}
 }

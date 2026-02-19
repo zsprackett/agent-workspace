@@ -51,7 +51,7 @@ func NewApp(store *db.DB, cfg config.Config) *App {
 		a.tapp.QueueUpdateDraw(func() {
 			a.refreshHome()
 		})
-	}, notifier)
+	}, notifier, nil)
 
 	a.syn = syncer.New(store, cfg.ReposDir)
 
