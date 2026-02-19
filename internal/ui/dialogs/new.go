@@ -13,6 +13,23 @@ type NewSessionResult struct {
 	GroupPath   string
 }
 
+// resolveGroupTool returns the tool to pre-select for a given group.
+// Priority: group DefaultTool > cfgDefault > "claude".
+func resolveGroupTool(groups []*db.Group, groupPath, cfgDefault string) string {
+	for _, g := range groups {
+		if g.Path == groupPath {
+			if g.DefaultTool != "" {
+				return string(g.DefaultTool)
+			}
+			break
+		}
+	}
+	if cfgDefault != "" {
+		return cfgDefault
+	}
+	return "claude"
+}
+
 // NewSessionDialog shows a form to create a new session.
 // onSubmit is called with the result; onCancel on Escape.
 func NewSessionDialog(groups []*db.Group, defaultTool string, defaultGroup string,
@@ -24,9 +41,10 @@ func NewSessionDialog(groups []*db.Group, defaultTool string, defaultGroup strin
 	form.SetFieldBackgroundColor(tcell.ColorDefault)
 
 	tools := []string{"claude", "opencode", "gemini", "codex", "shell", "custom"}
+	initialTool := resolveGroupTool(groups, defaultGroup, defaultTool)
 	defaultToolIdx := 0
 	for i, t := range tools {
-		if t == defaultTool {
+		if t == initialTool {
 			defaultToolIdx = i
 			break
 		}
@@ -48,6 +66,25 @@ func NewSessionDialog(groups []*db.Group, defaultTool string, defaultGroup strin
 	form.AddInputField("Project Path", "", 40, nil, nil)
 	if len(groups) > 0 {
 		form.AddDropDown("Group", groupNames, defaultGroupIdx, nil)
+	}
+
+	if len(groups) > 0 {
+		groupDD := form.GetFormItemByLabel("Group").(*tview.DropDown)
+		toolDD := form.GetFormItemByLabel("Tool").(*tview.DropDown)
+		groupDD.SetSelectedFunc(func(text string, _ int) {
+			for i, n := range groupNames {
+				if n == text {
+					newTool := resolveGroupTool(groups, groupPaths[i], defaultTool)
+					for ti, t := range tools {
+						if t == newTool {
+							toolDD.SetCurrentOption(ti)
+							break
+						}
+					}
+					break
+				}
+			}
+		})
 	}
 
 	form.AddButton("Create", func() {
