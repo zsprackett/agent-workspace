@@ -129,7 +129,7 @@ header h1 { font-size: 14px; font-weight: 600; }
 .action-btn:hover { border-color: var(--text); }
 .action-btn.danger:hover { border-color: var(--error); color: var(--error); }
 
-.terminal-container { margin-top: 10px; height: 300px; }
+.terminal-container { margin-top: 10px; height: 300px; overflow: hidden; position: relative; }
 
 .create-session-form {
   padding: 8px 16px 12px;

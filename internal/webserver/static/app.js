@@ -265,12 +265,34 @@ function render() {
         detail.appendChild(textarea);
         detail.appendChild(saveBtn);
 
-        // xterm.js terminal (only for sessions with a tmux session)
+        // Terminal container placeholder -- xterm is initialized after DOM append below.
         if (s.TmuxSession) {
           const termContainer = document.createElement('div');
           termContainer.className = 'terminal-container';
           detail.appendChild(termContainer);
+        }
 
+        loadEvents(s.ID, detail);
+      }
+
+      row.onclick = () => {
+        if (expandedSessions.has(s.ID)) {
+          // Close WebSocket if open
+          if (detail._ws) detail._ws.close();
+          expandedSessions.delete(s.ID);
+        } else {
+          expandedSessions.add(s.ID);
+        }
+        render();
+      };
+
+      list.appendChild(row);
+      list.appendChild(detail);
+
+      // Init xterm after detail is in the DOM so fitAddon sees real dimensions.
+      if (expandedSessions.has(s.ID) && s.TmuxSession) {
+        const termContainer = detail.querySelector('.terminal-container');
+        if (termContainer) {
           const term = new Terminal({
             theme: { background: '#0d1117', foreground: '#e6edf3' },
             cursorBlink: true,
@@ -278,7 +300,7 @@ function render() {
           const fitAddon = new FitAddon.FitAddon();
           term.loadAddon(fitAddon);
           term.open(termContainer);
-          fitAddon.fit();
+          requestAnimationFrame(() => fitAddon.fit());
 
           const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
           const ws = new WebSocket(`${wsProto}//${location.host}/ws/sessions/${s.ID}/terminal`);
@@ -298,23 +320,7 @@ function render() {
           });
           detail._ws = ws;
         }
-
-        loadEvents(s.ID, detail);
       }
-
-      row.onclick = () => {
-        if (expandedSessions.has(s.ID)) {
-          // Close WebSocket if open
-          if (detail._ws) detail._ws.close();
-          expandedSessions.delete(s.ID);
-        } else {
-          expandedSessions.add(s.ID);
-        }
-        render();
-      };
-
-      list.appendChild(row);
-      list.appendChild(detail);
     });
   });
 }
