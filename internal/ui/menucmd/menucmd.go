@@ -20,8 +20,10 @@ const menuText = `
   [::d]Esc  cancel[-]`
 
 // Run shows the command legend and dispatches the chosen action.
-// tmuxSession is the tmux session name; panePath is the current pane's working directory.
-func Run(tmuxSession, panePath string) error {
+// tmuxSession is the tmux session name. panePath is read from os.Getwd() --
+// tmux sets the display-popup working directory to the active pane's CWD.
+func Run(tmuxSession string) error {
+	panePath, _ := os.Getwd()
 	app := tview.NewApplication()
 
 	tv := tview.NewTextView().

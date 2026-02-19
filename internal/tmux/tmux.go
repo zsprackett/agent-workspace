@@ -158,10 +158,12 @@ func writeStatsFile(path string, running, waiting, total int) {
 func AttachSession(name, title string, getStats func() (running, waiting, total int)) error {
 	// Bind single leader key (Ctrl+\) that opens a command menu popup.
 	// All session actions live behind the leader -- no individual Ctrl combos stolen.
+	// Note: #{pane_current_path} is intentionally omitted; tmux opens display-popup
+	// with the active pane's CWD, so menucmd reads it via os.Getwd().
 	if exe, err := os.Executable(); err == nil {
 		exec.Command("tmux", "bind-key", "-n", "C-\\",
 			"display-popup", "-E", "-w", "44", "-h", "18",
-			fmt.Sprintf("%q menu %q #{pane_current_path}", exe, name)).Run()
+			fmt.Sprintf("%q menu %q", exe, name)).Run()
 	}
 
 	// Write initial stats to temp file. The status bar's #(cat file) is re-run on
