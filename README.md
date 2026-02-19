@@ -117,7 +117,7 @@ Worktrees are removed when the session is deleted.
 
 Press `n` on any session row to open an editable notes modal. Notes persist in SQLite across restarts.
 
-While attached to a session, press `Ctrl+N` to open the same notes editor as a floating popup without detaching.
+While attached to a session, press `Ctrl+\` to open the command menu, then `n` to open the same notes editor as a floating popup without detaching.
 
 ## Supported Tools
 
