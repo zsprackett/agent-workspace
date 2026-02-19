@@ -141,11 +141,13 @@ func (a *App) onNew(groupPath string) {
 				Tool:      result.Tool,
 				GroupPath: result.GroupPath,
 			}
-			// Look up the selected group's repo URL.
+			// Look up the selected group's repo URL and pre-launch command.
 			var groupRepoURL string
+			var groupPreLaunchCommand string
 			for _, g := range groups {
 				if g.Path == result.GroupPath {
 					groupRepoURL = g.RepoURL
+					groupPreLaunchCommand = g.PreLaunchCommand
 					break
 				}
 			}
@@ -158,6 +160,40 @@ func (a *App) onNew(groupPath string) {
 				a.refreshHome()
 				a.onAttachSession(s)
 			}
+
+			launchWithPreCheck := func() {
+				if groupPreLaunchCommand == "" {
+					createSession()
+					return
+				}
+				var cmdArgs []string
+				cmdArgs = append(cmdArgs, string(opts.Tool))
+				if opts.WorktreePath != "" {
+					cmdArgs = append(cmdArgs, opts.WorktreeRepo, opts.WorktreePath)
+				} else {
+					cmdArgs = append(cmdArgs, opts.ProjectPath)
+				}
+				out, err := session.RunPreLaunchCommand(groupPreLaunchCommand, cmdArgs...)
+				if err == nil {
+					createSession()
+					return
+				}
+				msg := fmt.Sprintf("Pre-launch command failed:\n\n%s\n\nContinue anyway?", out)
+				if len(msg) > 300 {
+					msg = msg[:300] + "..."
+				}
+				modal := tview.NewModal().
+					SetText(msg).
+					AddButtons([]string{"Continue", "Cancel"}).
+					SetDoneFunc(func(_ int, label string) {
+						a.closeDialog("prelaunch-warn")
+						if label == "Continue" {
+							createSession()
+						}
+					})
+				a.pages.AddPage("prelaunch-warn", modal, true, true)
+			}
+
 			if groupRepoURL != "" {
 				host, owner, repo, err := git.ParseRepoURL(groupRepoURL)
 				if err != nil {
@@ -206,7 +242,7 @@ func (a *App) onNew(groupPath string) {
 									opts.WorktreeBranch = branch
 									opts.ProjectPath = wtPath
 									opts.RepoURL = groupRepoURL
-									createSession()
+									launchWithPreCheck()
 								}
 							})
 						a.pages.AddPage("worktree-exists", modal, true, true)
@@ -223,7 +259,7 @@ func (a *App) onNew(groupPath string) {
 			} else {
 				opts.ProjectPath = result.ProjectPath
 			}
-			createSession()
+			launchWithPreCheck()
 		},
 		func() { a.closeDialog("new-session") },
 	)
@@ -306,7 +342,7 @@ func (a *App) onRestart(item listItem) {
 
 func (a *App) onEdit(item listItem) {
 	if item.isGroup {
-		form := dialogs.GroupDialog("Edit Group", item.group.Name, item.group.RepoURL,
+		form := dialogs.GroupDialog("Edit Group", item.group.Name, item.group.RepoURL, item.group.PreLaunchCommand,
 			func(result dialogs.GroupResult) {
 				a.closeDialog("edit")
 				groups, _ := a.store.LoadGroups()
@@ -314,13 +350,14 @@ func (a *App) onEdit(item listItem) {
 					if g.Path == item.group.Path {
 						g.Name = result.Name
 						g.RepoURL = result.RepoURL
+						g.PreLaunchCommand = result.PreLaunchCommand
 					}
 				}
 				a.store.SaveGroups(groups)
 				a.store.Touch()
 				a.refreshHome()
 			}, func() { a.closeDialog("edit") })
-		a.showDialog("edit", form, 65, 12)
+		a.showDialog("edit", form, 65, 16)
 	} else if item.session != nil {
 		groups, _ := a.store.LoadGroups()
 		form := dialogs.EditSessionDialog(item.session, groups,
@@ -342,22 +379,23 @@ func (a *App) onEdit(item listItem) {
 }
 
 func (a *App) onNewGroup() {
-	form := dialogs.GroupDialog("New Group", "", "", func(result dialogs.GroupResult) {
+	form := dialogs.GroupDialog("New Group", "", "", "", func(result dialogs.GroupResult) {
 		a.closeDialog("new-group")
 		path := strings.ToLower(strings.ReplaceAll(result.Name, " ", "-"))
 		groups, _ := a.store.LoadGroups()
 		groups = append(groups, &db.Group{
-			Path:      path,
-			Name:      result.Name,
-			Expanded:  true,
-			SortOrder: len(groups),
-			RepoURL:   result.RepoURL,
+			Path:             path,
+			Name:             result.Name,
+			Expanded:         true,
+			SortOrder:        len(groups),
+			RepoURL:          result.RepoURL,
+			PreLaunchCommand: result.PreLaunchCommand,
 		})
 		a.store.SaveGroups(groups)
 		a.store.Touch()
 		a.refreshHome()
 	}, func() { a.closeDialog("new-group") })
-	a.showDialog("new-group", form, 65, 12)
+	a.showDialog("new-group", form, 65, 16)
 }
 
 func (a *App) onMove(item listItem) {
