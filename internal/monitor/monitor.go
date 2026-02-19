@@ -1,0 +1,110 @@
+package monitor
+
+import (
+	"sync"
+	"time"
+
+	"github.com/zsprackett/agent-workspace/internal/db"
+	"github.com/zsprackett/agent-workspace/internal/tmux"
+)
+
+type OnUpdate func()
+
+type Monitor struct {
+	db       *db.DB
+	onUpdate OnUpdate
+	interval time.Duration
+	stop     chan struct{}
+	wg       sync.WaitGroup
+}
+
+func New(store *db.DB, onUpdate OnUpdate) *Monitor {
+	return &Monitor{
+		db:       store,
+		onUpdate: onUpdate,
+		interval: 500 * time.Millisecond,
+		stop:     make(chan struct{}),
+	}
+}
+
+func (m *Monitor) Start() {
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		ticker := time.NewTicker(m.interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-m.stop:
+				return
+			case <-ticker.C:
+				m.refresh()
+			}
+		}
+	}()
+}
+
+func (m *Monitor) Stop() {
+	close(m.stop)
+	m.wg.Wait()
+}
+
+func (m *Monitor) refresh() {
+	sessions, err := m.db.LoadSessions()
+	if err != nil || len(sessions) == 0 {
+		return
+	}
+
+	tmuxSessions, err := tmux.ListSessions()
+	if err != nil {
+		return
+	}
+
+	changed := false
+	for _, s := range sessions {
+		if s.TmuxSession == "" {
+			continue
+		}
+		if !tmux.SessionExists(s.TmuxSession, tmuxSessions) {
+			m.db.WriteStatus(s.ID, db.StatusStopped, s.Tool)
+			changed = true
+			continue
+		}
+
+		output, err := tmux.CapturePane(s.TmuxSession, tmux.CaptureOptions{
+			StartLine: -100,
+			Join:      true,
+		})
+		if err != nil {
+			continue
+		}
+
+		status := tmux.ParseToolStatus(output, string(s.Tool))
+		isActive := tmux.IsSessionActive(s.TmuxSession, tmuxSessions, 2)
+		isWaitingForInput := tmux.IsPaneWaitingForInput(s.TmuxSession)
+
+		var newStatus db.SessionStatus
+		switch {
+		case status.IsWaiting || isWaitingForInput:
+			newStatus = db.StatusWaiting
+		case status.HasError:
+			newStatus = db.StatusError
+		case status.IsBusy || isActive:
+			newStatus = db.StatusRunning
+		default:
+			newStatus = db.StatusIdle
+		}
+
+		if newStatus != s.Status {
+			m.db.WriteStatus(s.ID, newStatus, s.Tool)
+			changed = true
+		}
+	}
+
+	if changed {
+		m.db.Touch()
+		if m.onUpdate != nil {
+			m.onUpdate()
+		}
+	}
+}
