@@ -24,6 +24,7 @@ type Server struct {
 	cfg     Config
 	mu      sync.Mutex
 	clients map[chan events.Event]struct{}
+	ttyd    *ttydManager
 }
 
 func New(store *db.DB, manager *session.Manager, cfg Config) *Server {
@@ -32,6 +33,7 @@ func New(store *db.DB, manager *session.Manager, cfg Config) *Server {
 		manager: manager,
 		cfg:     cfg,
 		clients: make(map[chan events.Event]struct{}),
+		ttyd:    newTTYDManager(),
 	}
 }
 
@@ -68,7 +70,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{id}/restart", s.handleRestartSession)
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.handleDeleteSession)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.handleSessionEvents)
-	mux.HandleFunc("GET /ws/sessions/{id}/terminal", s.handleTerminal)
+	mux.HandleFunc("GET /api/sessions/{id}/ttyd", s.handleTTYD)
+	mux.HandleFunc("DELETE /api/sessions/{id}/ttyd", s.handleKillTTYD)
 	mux.HandleFunc("GET /events", s.handleSSE)
 	mux.Handle("GET /", http.FileServer(staticFiles()))
 	return mux
@@ -222,6 +225,27 @@ func (s *Server) handleRestartSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Broadcast(events.Event{Type: "refresh"})
+	w.WriteHeader(204)
+}
+
+func (s *Server) handleTTYD(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	sess, err := s.store.GetSession(id)
+	if err != nil || sess == nil || sess.TmuxSession == "" {
+		http.Error(w, "session not found", 404)
+		return
+	}
+	port, err := s.ttyd.spawn(id, sess.TmuxSession)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"url": fmt.Sprintf("http://127.0.0.1:%d", port)})
+}
+
+func (s *Server) handleKillTTYD(w http.ResponseWriter, r *http.Request) {
+	s.ttyd.kill(r.PathValue("id"))
 	w.WriteHeader(204)
 }
 

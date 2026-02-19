@@ -35,8 +35,21 @@ function connectSSE() {
       fetchSessions();
     } else if (evt.type === 'status_changed') {
       const s = state.sessions.find(s => s.ID === evt.session_id);
-      if (s) { s.Status = evt.status; render(); }
-      else    { fetchSessions(); }
+      if (s) {
+        s.Status = evt.status;
+        // Update only the status dot in-place -- avoid a full re-render and
+        // the iframe teardown that causes visible flicker every 500ms.
+        const row = document.querySelector(`.session-row[data-session-id="${evt.session_id}"]`);
+        if (row) {
+          const icon = STATUS_ICONS[evt.status] || STATUS_ICONS.idle;
+          const dot = row.querySelector('.status-dot');
+          if (dot) { dot.className = `status-dot ${icon.cls}`; dot.textContent = icon.char; }
+        } else {
+          render();
+        }
+      } else {
+        fetchSessions();
+      }
     } else {
       fetchSessions();
     }
@@ -164,12 +177,12 @@ function buildCreateForm(groupPath) {
 function render() {
   const list = document.getElementById('session-list');
 
-  // Close WebSockets for sessions that are no longer expanded before clearing DOM.
+  // Save live terminal iframes so they survive the DOM rebuild without reloading.
+  const savedIframes = {};
   list.querySelectorAll('.session-detail[data-session-id]').forEach(detail => {
     const sid = detail.dataset.sessionId;
-    if (!expandedSessions.has(sid) && detail._ws) {
-      detail._ws.close();
-    }
+    const iframe = detail.querySelector('.terminal-iframe');
+    if (iframe) savedIframes[sid] = iframe;
   });
 
   list.innerHTML = '';
@@ -224,6 +237,7 @@ function render() {
       row.innerHTML = `
         <span class="status-dot ${icon.cls}">${icon.char}</span>
         <span class="session-title">${s.HasUncommitted ? '* ' : ''}${s.Title}</span>
+        <span class="session-dims"></span>
         <span class="session-tool">${s.Tool}</span>
       `;
 
@@ -237,9 +251,13 @@ function render() {
         actions.className = 'session-actions';
 
         if (s.Status !== 'stopped') {
-          actions.appendChild(mkBtn('Stop', false, () => apiAction(`/api/sessions/${s.ID}/stop`, 'POST')));
+          actions.appendChild(mkBtn('Stop', false, () => {
+            if (confirm(`Stop session "${s.Title}"?`)) apiAction(`/api/sessions/${s.ID}/stop`, 'POST');
+          }));
         }
-        actions.appendChild(mkBtn('Restart', false, () => apiAction(`/api/sessions/${s.ID}/restart`, 'POST')));
+        actions.appendChild(mkBtn('Restart', false, () => {
+          if (confirm(`Restart session "${s.Title}"?`)) apiAction(`/api/sessions/${s.ID}/restart`, 'POST');
+        }));
         actions.appendChild(mkBtn('Delete', true, () => {
           if (confirm(`Delete session "${s.Title}"?`)) {
             expandedSessions.delete(s.ID);
@@ -265,7 +283,7 @@ function render() {
         detail.appendChild(textarea);
         detail.appendChild(saveBtn);
 
-        // Terminal container placeholder -- xterm is initialized after DOM append below.
+        // Terminal iframe -- populated after DOM append below.
         if (s.TmuxSession) {
           const termContainer = document.createElement('div');
           termContainer.className = 'terminal-container';
@@ -277,8 +295,7 @@ function render() {
 
       row.onclick = () => {
         if (expandedSessions.has(s.ID)) {
-          // Close WebSocket if open
-          if (detail._ws) detail._ws.close();
+          fetch(`/api/sessions/${s.ID}/ttyd`, { method: 'DELETE' }).catch(() => {});
           expandedSessions.delete(s.ID);
         } else {
           expandedSessions.add(s.ID);
@@ -289,55 +306,26 @@ function render() {
       list.appendChild(row);
       list.appendChild(detail);
 
-      // Init xterm after detail is in the DOM so fitAddon sees real dimensions.
+      // Spawn ttyd and embed it in an iframe.
       if (expandedSessions.has(s.ID) && s.TmuxSession) {
         const termContainer = detail.querySelector('.terminal-container');
         if (termContainer) {
-          const term = new Terminal({
-            theme: { background: '#0d1117', foreground: '#e6edf3' },
-            cursorBlink: true,
-          });
-          const fitAddon = new FitAddon.FitAddon();
-          term.loadAddon(fitAddon);
-          term.open(termContainer);
-          // Fit synchronously -- container is already in the DOM so accessing
-          // clientWidth triggers a forced reflow and gives real dimensions.
-          // Must happen before the WebSocket is created so ws.onopen sends
-          // correct cols/rows (not the default 80x24).
-          fitAddon.fit();
-
-          const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-          const ws = new WebSocket(`${wsProto}//${location.host}/ws/sessions/${s.ID}/terminal`);
-          ws.binaryType = 'arraybuffer';
-          ws.onopen = () => {
-            // Send terminal dimensions so the server can resize the pane to match
-            // before capturing the initial screen content.
-            ws.send(JSON.stringify({ type: 'init', cols: term.cols, rows: term.rows }));
-          };
-          ws.onmessage = (e) => {
-            if (e.data instanceof ArrayBuffer) {
-              term.write(new Uint8Array(e.data));
-            } else {
-              term.write(e.data);
-            }
-          };
-          const resizeHandler = () => {
-            fitAddon.fit();
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
-            }
-          };
-          window.addEventListener('resize', resizeHandler);
-          ws.onclose = () => {
-            term.write('\r\n[disconnected]\r\n');
-            window.removeEventListener('resize', resizeHandler);
-          };
-          term.onData(data => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: 'input', data }));
-            }
-          });
-          detail._ws = ws;
+          if (savedIframes[s.ID]) {
+            // Reuse the existing iframe -- avoids terminal reload on re-render.
+            termContainer.appendChild(savedIframes[s.ID]);
+          } else {
+            fetch(`/api/sessions/${s.ID}/ttyd`)
+              .then(r => r.json())
+              .then(({ url }) => {
+                const iframe = document.createElement('iframe');
+                iframe.src = url;
+                iframe.className = 'terminal-iframe';
+                termContainer.appendChild(iframe);
+              })
+              .catch(() => {
+                termContainer.textContent = 'Failed to start terminal';
+              });
+          }
         }
       }
     });

@@ -71,7 +71,8 @@ header h1 { font-size: 14px; font-weight: 600; }
 .status-dot.stopped  { color: var(--stopped); }
 .status-dot.error    { color: var(--error); }
 
-.session-title { flex: 1; font-weight: 500; }
+.session-title { font-weight: 500; }
+.session-dims  { flex: 1; color: var(--muted); font-size: 12px; padding-left: 6px; }
 .session-tool  { color: var(--muted); font-size: 12px; }
 .dirty-flag    { color: var(--waiting); font-size: 11px; }
 
@@ -129,7 +130,8 @@ header h1 { font-size: 14px; font-weight: 600; }
 .action-btn:hover { border-color: var(--text); }
 .action-btn.danger:hover { border-color: var(--error); color: var(--error); }
 
-.terminal-container { margin-top: 10px; width: 100%; height: 300px; overflow: hidden; position: relative; }
+.terminal-container { margin-top: 10px; width: 100%; height: 400px; }
+.terminal-iframe { width: 100%; height: 100%; border: none; display: block; }
 
 .create-session-form {
   padding: 8px 16px 12px;

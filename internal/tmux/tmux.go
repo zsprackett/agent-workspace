@@ -96,6 +96,29 @@ func ResizePane(name string, cols, rows int) error {
 		"-y", fmt.Sprintf("%d", rows)).Run()
 }
 
+// PaneCursor returns the current cursor position (0-based col, row) for the
+// active pane in the given session.
+func PaneCursor(name string) (col, row int, err error) {
+	out, err := exec.Command("tmux", "display-message", "-t", name, "-p",
+		"#{cursor_x},#{cursor_y}").Output()
+	if err != nil {
+		return 0, 0, err
+	}
+	_, err = fmt.Sscanf(strings.TrimSpace(string(out)), "%d,%d", &col, &row)
+	return
+}
+
+// PaneSize returns the dimensions of the active pane in the given session.
+func PaneSize(name string) (cols, rows int, err error) {
+	out, err := exec.Command("tmux", "display-message", "-t", name, "-p",
+		"#{pane_width},#{pane_height}").Output()
+	if err != nil {
+		return 0, 0, err
+	}
+	_, err = fmt.Sscanf(strings.TrimSpace(string(out)), "%d,%d", &cols, &rows)
+	return
+}
+
 type CaptureOptions struct {
 	StartLine int
 	EndLine   int
