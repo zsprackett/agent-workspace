@@ -9,6 +9,7 @@ import (
 
 	"github.com/zsprackett/agent-workspace/internal/db"
 	"github.com/zsprackett/agent-workspace/internal/events"
+	"github.com/zsprackett/agent-workspace/internal/session"
 )
 
 type Config struct {
@@ -19,14 +20,16 @@ type Config struct {
 
 type Server struct {
 	store   *db.DB
+	manager *session.Manager
 	cfg     Config
 	mu      sync.Mutex
 	clients map[chan events.Event]struct{}
 }
 
-func New(store *db.DB, cfg Config) *Server {
+func New(store *db.DB, manager *session.Manager, cfg Config) *Server {
 	return &Server{
 		store:   store,
+		manager: manager,
 		cfg:     cfg,
 		clients: make(map[chan events.Event]struct{}),
 	}
@@ -59,8 +62,13 @@ func (s *Server) removeClient(ch chan events.Event) {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/sessions", s.handleSessions)
+	mux.HandleFunc("POST /api/sessions", s.handleCreateSession)
 	mux.HandleFunc("POST /api/sessions/{id}/notes", s.handleUpdateNotes)
+	mux.HandleFunc("POST /api/sessions/{id}/stop", s.handleStopSession)
+	mux.HandleFunc("POST /api/sessions/{id}/restart", s.handleRestartSession)
+	mux.HandleFunc("DELETE /api/sessions/{id}", s.handleDeleteSession)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.handleSessionEvents)
+	mux.HandleFunc("GET /ws/sessions/{id}/terminal", s.handleTerminal)
 	mux.HandleFunc("GET /events", s.handleSSE)
 	mux.Handle("GET /", http.FileServer(staticFiles()))
 	return mux
@@ -166,4 +174,63 @@ func writeSSE(w http.ResponseWriter, f http.Flusher, e events.Event) {
 	data, _ := json.Marshal(e)
 	fmt.Fprintf(w, "data: %s\n\n", data)
 	f.Flush()
+}
+
+func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Title       string   `json:"title"`
+		Tool        db.Tool  `json:"tool"`
+		GroupPath   string   `json:"group_path"`
+		ProjectPath string   `json:"project_path"`
+		Command     string   `json:"command"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	sess, err := s.manager.Create(session.CreateOptions{
+		Title:       body.Title,
+		Tool:        body.Tool,
+		GroupPath:   body.GroupPath,
+		ProjectPath: body.ProjectPath,
+		Command:     body.Command,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	s.Broadcast(events.Event{Type: "refresh"})
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	json.NewEncoder(w).Encode(sess)
+}
+
+func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.manager.Stop(id); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	s.Broadcast(events.Event{Type: "refresh"})
+	w.WriteHeader(204)
+}
+
+func (s *Server) handleRestartSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.manager.Restart(id); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	s.Broadcast(events.Event{Type: "refresh"})
+	w.WriteHeader(204)
+}
+
+func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.manager.Delete(id); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	s.Broadcast(events.Event{Type: "refresh"})
+	w.WriteHeader(204)
 }

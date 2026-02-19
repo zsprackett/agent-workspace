@@ -51,7 +51,7 @@ func NewApp(store *db.DB, cfg config.Config) *App {
 		NtfyURL: cfg.Notifications.NtfyURL,
 	})
 
-	a.web = webserver.New(store, webserver.Config{
+	a.web = webserver.New(store, a.mgr, webserver.Config{
 		Enabled: cfg.Webserver.Enabled,
 		Port:    cfg.Webserver.Port,
 		Host:    cfg.Webserver.Host,
