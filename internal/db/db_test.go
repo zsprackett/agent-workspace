@@ -149,6 +149,54 @@ func TestGroupDefaultToolRoundTrip(t *testing.T) {
 	}
 }
 
+func openTestDB(t *testing.T) *db.DB {
+	t.Helper()
+	store, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	return store
+}
+
+func TestSessionEvents(t *testing.T) {
+	store := openTestDB(t)
+
+	s := &db.Session{
+		ID:          "test-1",
+		Title:       "test",
+		ProjectPath: "/tmp",
+		GroupPath:   "default",
+		Tool:        db.ToolClaude,
+		Status:      db.StatusIdle,
+		TmuxSession: "agws_test",
+	}
+	if err := store.SaveSession(s); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.InsertSessionEvent("test-1", "created", ""); err != nil {
+		t.Fatalf("InsertSessionEvent: %v", err)
+	}
+	if err := store.InsertSessionEvent("test-1", "status_changed", `{"from":"idle","to":"running"}`); err != nil {
+		t.Fatalf("InsertSessionEvent: %v", err)
+	}
+
+	events, err := store.GetSessionEvents("test-1", 50)
+	if err != nil {
+		t.Fatalf("GetSessionEvents: %v", err)
+	}
+	if len(events) != 2 {
+		t.Errorf("expected 2 events, got %d", len(events))
+	}
+	if events[0].EventType != "status_changed" {
+		t.Errorf("expected most recent first: got %q", events[0].EventType)
+	}
+}
+
 func TestRepoURLRoundTrip(t *testing.T) {
 	store, _ := db.Open(":memory:")
 	defer store.Close()

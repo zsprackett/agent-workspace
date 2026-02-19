@@ -119,6 +119,23 @@ func (d *DB) Migrate() error {
 		}
 	}
 
+	_, err = d.sql.Exec(`
+		CREATE TABLE IF NOT EXISTS session_events (
+			id         INTEGER PRIMARY KEY,
+			session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+			ts         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			event_type TEXT NOT NULL,
+			detail     TEXT NOT NULL DEFAULT ''
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("create session_events: %w", err)
+	}
+
+	if _, alterErr := d.sql.Exec(`CREATE INDEX IF NOT EXISTS idx_session_events_session_id ON session_events(session_id, ts DESC)`); alterErr != nil {
+		return fmt.Errorf("index session_events: %w", alterErr)
+	}
+
 	return nil
 }
 
@@ -374,4 +391,39 @@ func (d *DB) IsEmpty() (bool, error) {
 	var count int
 	err := d.sql.QueryRow("SELECT COUNT(*) FROM sessions").Scan(&count)
 	return count == 0, err
+}
+
+func (d *DB) InsertSessionEvent(sessionID, eventType, detail string) error {
+	_, err := d.sql.Exec(
+		`INSERT INTO session_events (session_id, event_type, detail) VALUES (?, ?, ?)`,
+		sessionID, eventType, detail,
+	)
+	return err
+}
+
+func (d *DB) GetSessionEvents(sessionID string, limit int) ([]SessionEvent, error) {
+	rows, err := d.sql.Query(
+		`SELECT id, session_id, ts, event_type, detail
+		 FROM session_events
+		 WHERE session_id = ?
+		 ORDER BY ts DESC, id DESC
+		 LIMIT ?`,
+		sessionID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []SessionEvent
+	for rows.Next() {
+		var e SessionEvent
+		var ts string
+		if err := rows.Scan(&e.ID, &e.SessionID, &ts, &e.EventType, &e.Detail); err != nil {
+			return nil, err
+		}
+		e.Ts, _ = time.Parse("2006-01-02 15:04:05", ts)
+		events = append(events, e)
+	}
+	return events, rows.Err()
 }

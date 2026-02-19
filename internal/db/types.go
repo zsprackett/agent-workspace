@@ -81,3 +81,11 @@ type StatusUpdate struct {
 	Tool         Tool
 	Acknowledged bool
 }
+
+type SessionEvent struct {
+	ID        int64
+	SessionID string
+	Ts        time.Time
+	EventType string
+	Detail    string
+}
