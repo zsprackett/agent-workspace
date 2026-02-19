@@ -300,7 +300,11 @@ function render() {
           const fitAddon = new FitAddon.FitAddon();
           term.loadAddon(fitAddon);
           term.open(termContainer);
-          requestAnimationFrame(() => fitAddon.fit());
+          // Fit synchronously -- container is already in the DOM so accessing
+          // clientWidth triggers a forced reflow and gives real dimensions.
+          // Must happen before the WebSocket is created so ws.onopen sends
+          // correct cols/rows (not the default 80x24).
+          fitAddon.fit();
 
           const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
           const ws = new WebSocket(`${wsProto}//${location.host}/ws/sessions/${s.ID}/terminal`);

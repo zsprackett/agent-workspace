@@ -52,13 +52,15 @@ func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 	if json.Unmarshal(raw, &initMsg) == nil && initMsg.Type == "init" &&
 		initMsg.Cols > 0 && initMsg.Rows > 0 {
 		tmux.ResizePane(sess.TmuxSession, initMsg.Cols, initMsg.Rows)
-		// Brief pause so tmux processes the resize before we capture.
-		time.Sleep(50 * time.Millisecond)
+		// Wait for the application to receive SIGWINCH and repaint at the new
+		// width before we capture. 50ms is too short for Claude Code's TUI.
+		time.Sleep(300 * time.Millisecond)
 	}
 
-	// Capture the current visible pane content at the (now correct) width.
+	// Capture the current visible pane only (StartLine:0 = top of visible area,
+	// no scrollback) so we get the repainted screen at the new width.
 	initial, _ := tmux.CapturePane(sess.TmuxSession, tmux.CaptureOptions{
-		StartLine: -50, EscapeSeq: true,
+		StartLine: 0, EscapeSeq: true,
 	})
 	if initial != "" {
 		conn.WriteMessage(websocket.TextMessage, []byte(initial))
