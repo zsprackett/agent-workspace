@@ -171,6 +171,12 @@ func AttachSession(name, title string, getStats func() (running, waiting, total 
 	// Bind Ctrl+P to open the current branch's GitHub PR in the browser
 	exec.Command("tmux", "bind-key", "-n", "C-p", "run-shell",
 		`cd '#{pane_current_path}' && url=$(gh pr view --json url --jq .url 2>/dev/null) && [ -n "$url" ] && { open "$url" 2>/dev/null || xdg-open "$url" 2>/dev/null; tmux display-message "Opening PR: $url"; } || tmux display-message "No open PR found for this branch"`).Run()
+	// Bind Ctrl+N to open a notes popup using the agent-workspace notes subcommand
+	if exe, err := os.Executable(); err == nil {
+		exec.Command("tmux", "bind-key", "-n", "C-n",
+			"display-popup", "-E", "-w", "64", "-h", "22",
+			fmt.Sprintf("%q notes %q", exe, name)).Run()
+	}
 
 	// Write initial stats to temp file. The status bar's #(cat file) is re-run on
 	// every status-interval tick, giving live updates in the top header bar.
@@ -195,6 +201,7 @@ func AttachSession(name, title string, getStats func() (running, waiting, total 
 		"#[fg=#89b4fa]Ctrl+G#[fg=#6c7086] status  " +
 		"#[fg=#89b4fa]Ctrl+F#[fg=#6c7086] diff  " +
 		"#[fg=#89b4fa]Ctrl+P#[fg=#6c7086] PR  " +
+		"#[fg=#89b4fa]Ctrl+N#[fg=#6c7086] notes  " +
 		"#[fg=#89b4fa]Ctrl+T#[fg=#6c7086] terminal  " +
 		"#[fg=#89b4fa]Ctrl+D#[fg=#6c7086] detach"
 	exec.Command("tmux", "set-window-option", "-t", name, "pane-border-status", "bottom").Run()
@@ -234,6 +241,7 @@ func AttachSession(name, title string, getStats func() (running, waiting, total 
 	exec.Command("tmux", "unbind-key", "-n", "C-g").Run()
 	exec.Command("tmux", "unbind-key", "-n", "C-f").Run()
 	exec.Command("tmux", "unbind-key", "-n", "C-p").Run()
+	exec.Command("tmux", "unbind-key", "-n", "C-n").Run()
 	exec.Command("tmux", "set-window-option", "-t", name, "pane-border-status", "off").Run()
 	exec.Command("tmux", "set-window-option", "-u", "-t", name, "window-status-format").Run()
 	exec.Command("tmux", "set-window-option", "-u", "-t", name, "window-status-current-format").Run()

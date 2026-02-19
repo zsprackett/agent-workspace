@@ -43,6 +43,7 @@ type Home struct {
 	onNewGroup func()
 	onMove     func(item listItem)
 	onAttach   func(item listItem)
+	onNotes    func(item listItem)
 	onQuit     func()
 }
 
@@ -74,7 +75,7 @@ func NewHome(app *tview.Application) *Home {
 	h.footer.SetBackgroundColor(ColorBackgroundPanel)
 	h.footer.SetText(
 		"[green]↑↓[-] navigate  [green]←→[-] fold  [green]Enter/a[-] attach  " +
-			"[green]n[-] new  [green]d[-] delete  [green]s[-] stop  [green]x[-] restart  " +
+			"[green]n[-] new/notes  [green]d[-] delete  [green]s[-] stop  [green]x[-] restart  " +
 			"[green]e[-] edit  [green]g[-] group  [green]m[-] move  [green]?[-] help  [green]q[-] quit")
 
 	previewFlex := tview.NewFlex().SetDirection(tview.FlexRow).
@@ -105,6 +106,7 @@ func (h *Home) SetCallbacks(
 	onNewGroup func(),
 	onMove func(listItem),
 	onAttach func(listItem),
+	onNotes func(listItem),
 	onQuit func(),
 ) {
 	h.onNew = onNew
@@ -115,6 +117,7 @@ func (h *Home) SetCallbacks(
 	h.onNewGroup = onNewGroup
 	h.onMove = onMove
 	h.onAttach = onAttach
+	h.onNotes = onNotes
 	h.onQuit = onQuit
 }
 
@@ -189,8 +192,12 @@ func (h *Home) renderTable() {
 			if len(title) > 20 {
 				title = title[:18] + ".."
 			}
+			dirtyMark := "  "
+			if s.HasUncommitted {
+				dirtyMark = "* "
+			}
 			age := formatAge(s.LastAccessed)
-			text := fmt.Sprintf("   %s %-20s %s  %s", icon, title, s.Tool, age)
+			text := fmt.Sprintf("   %s %s%-20s %s  %s", icon, dirtyMark, title, s.Tool, age)
 			cell := tview.NewTableCell(text).
 				SetTextColor(color).
 				SetBackgroundColor(ColorBackground).
@@ -322,7 +329,11 @@ func (h *Home) setupInput() {
 			}
 			return nil
 		case 'n':
-			if h.onNew != nil {
+			if item, ok := h.selectedItem(); ok && !item.isGroup {
+				if h.onNotes != nil {
+					h.onNotes(item)
+				}
+			} else if h.onNew != nil {
 				h.onNew(h.selectedGroupPath())
 			}
 			return nil

@@ -12,7 +12,7 @@ const helpText = `[yellow]Dashboard Keys[-]
   [green]←/h[-]      Collapse group
   [green]→/l[-]      Expand group
   [green]Enter/a[-]  Attach to session
-  [green]n[-]        New session
+  [green]n[-]        New session (on group) / Session notes (on session)
   [green]d[-]        Delete session or group
   [green]s[-]        Stop session
   [green]x[-]        Restart session
@@ -30,6 +30,7 @@ const helpText = `[yellow]Dashboard Keys[-]
   [green]Ctrl+G[-]   Git status
   [green]Ctrl+F[-]   Git diff
   [green]Ctrl+P[-]   Open pull request in browser
+  [green]Ctrl+N[-]   View session notes
 
 Press [green]Escape[-] or [green]?[-] to close.`
 

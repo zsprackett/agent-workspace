@@ -84,5 +84,23 @@ func (s *Syncer) refresh() {
 			// Non-fatal: log to stderr and continue
 			log.Printf("syncer: fetch %s: %v", path, err)
 		}
+		s.updateDirtyStatus(g.Path)
+	}
+}
+
+func (s *Syncer) updateDirtyStatus(groupPath string) {
+	sessions, err := s.db.LoadSessionsByGroupPath(groupPath)
+	if err != nil {
+		return
+	}
+	for _, sess := range sessions {
+		if sess.WorktreePath == "" {
+			continue
+		}
+		dirty, err := git.IsWorktreeDirty(sess.WorktreePath)
+		if err != nil {
+			continue
+		}
+		s.db.UpdateSessionDirty(sess.ID, dirty)
 	}
 }

@@ -5,25 +5,30 @@ import (
 	"time"
 
 	"github.com/zsprackett/agent-workspace/internal/db"
+	"github.com/zsprackett/agent-workspace/internal/notify"
 	"github.com/zsprackett/agent-workspace/internal/tmux"
 )
 
 type OnUpdate func()
 
 type Monitor struct {
-	db       *db.DB
-	onUpdate OnUpdate
-	interval time.Duration
-	stop     chan struct{}
-	wg       sync.WaitGroup
+	db         *db.DB
+	onUpdate   OnUpdate
+	notifier   *notify.Notifier
+	prevStatus map[string]db.SessionStatus
+	interval   time.Duration
+	stop       chan struct{}
+	wg         sync.WaitGroup
 }
 
-func New(store *db.DB, onUpdate OnUpdate) *Monitor {
+func New(store *db.DB, onUpdate OnUpdate, notifier *notify.Notifier) *Monitor {
 	return &Monitor{
-		db:       store,
-		onUpdate: onUpdate,
-		interval: 500 * time.Millisecond,
-		stop:     make(chan struct{}),
+		db:         store,
+		onUpdate:   onUpdate,
+		notifier:   notifier,
+		prevStatus: make(map[string]db.SessionStatus),
+		interval:   500 * time.Millisecond,
+		stop:       make(chan struct{}),
 	}
 }
 
@@ -96,9 +101,15 @@ func (m *Monitor) refresh() {
 		}
 
 		if newStatus != s.Status {
+			prev := m.prevStatus[s.ID]
 			m.db.WriteStatus(s.ID, newStatus, s.Tool)
 			changed = true
+			if newStatus == db.StatusWaiting && prev != db.StatusWaiting {
+				s.Status = newStatus
+				m.notifier.Notify(*s)
+			}
 		}
+		m.prevStatus[s.ID] = newStatus
 	}
 
 	if changed {

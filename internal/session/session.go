@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/zsprackett/agent-workspace/internal/db"
+	"github.com/zsprackett/agent-workspace/internal/git"
 	"github.com/zsprackett/agent-workspace/internal/tmux"
 )
 
@@ -214,7 +215,15 @@ func (m *Manager) Attach(id string) error {
 		}
 		return running, waiting, len(all)
 	}
-	return tmux.AttachSession(s.TmuxSession, s.Title, getStats)
+	if err := tmux.AttachSession(s.TmuxSession, s.Title, getStats); err != nil {
+		return err
+	}
+	if s.WorktreePath != "" {
+		if dirty, err := git.IsWorktreeDirty(s.WorktreePath); err == nil {
+			m.db.UpdateSessionDirty(s.ID, dirty)
+		}
+	}
+	return nil
 }
 
 func (m *Manager) List() ([]*db.Session, error) {
