@@ -79,12 +79,13 @@ func (d *DB) Migrate() error {
 
 	_, err = d.sql.Exec(`
 		CREATE TABLE IF NOT EXISTS groups (
-			path         TEXT PRIMARY KEY,
-			name         TEXT NOT NULL,
-			expanded     INTEGER NOT NULL DEFAULT 1,
-			sort_order   INTEGER NOT NULL DEFAULT 0,
-			default_path TEXT NOT NULL DEFAULT '',
-			repo_url     TEXT NOT NULL DEFAULT ''
+			path               TEXT PRIMARY KEY,
+			name               TEXT NOT NULL,
+			expanded           INTEGER NOT NULL DEFAULT 1,
+			sort_order         INTEGER NOT NULL DEFAULT 0,
+			default_path       TEXT NOT NULL DEFAULT '',
+			repo_url           TEXT NOT NULL DEFAULT '',
+			pre_launch_command TEXT NOT NULL DEFAULT ''
 		)
 	`)
 	if err != nil {
@@ -95,6 +96,13 @@ func (d *DB) Migrate() error {
 	if _, alterErr := d.sql.Exec(`ALTER TABLE groups ADD COLUMN repo_url TEXT NOT NULL DEFAULT ''`); alterErr != nil {
 		if !isDuplicateColumnError(alterErr) {
 			return fmt.Errorf("alter groups add repo_url: %w", alterErr)
+		}
+	}
+
+	// Add pre_launch_command column to existing groups tables; ignore "duplicate column" errors.
+	if _, alterErr := d.sql.Exec(`ALTER TABLE groups ADD COLUMN pre_launch_command TEXT NOT NULL DEFAULT ''`); alterErr != nil {
+		if !isDuplicateColumnError(alterErr) {
+			return fmt.Errorf("alter groups add pre_launch_command: %w", alterErr)
 		}
 	}
 
@@ -241,8 +249,8 @@ func (d *DB) SaveGroups(groups []*Group) error {
 	}
 	for _, g := range groups {
 		if _, err := tx.Exec(
-			"INSERT INTO groups (path, name, expanded, sort_order, default_path, repo_url) VALUES (?,?,?,?,?,?)",
-			g.Path, g.Name, boolToInt(g.Expanded), g.SortOrder, g.DefaultPath, g.RepoURL,
+			"INSERT INTO groups (path, name, expanded, sort_order, default_path, repo_url, pre_launch_command) VALUES (?,?,?,?,?,?,?)",
+			g.Path, g.Name, boolToInt(g.Expanded), g.SortOrder, g.DefaultPath, g.RepoURL, g.PreLaunchCommand,
 		); err != nil {
 			return err
 		}
@@ -251,7 +259,7 @@ func (d *DB) SaveGroups(groups []*Group) error {
 }
 
 func (d *DB) LoadGroups() ([]*Group, error) {
-	rows, err := d.sql.Query("SELECT path, name, expanded, sort_order, default_path, repo_url FROM groups ORDER BY sort_order")
+	rows, err := d.sql.Query("SELECT path, name, expanded, sort_order, default_path, repo_url, pre_launch_command FROM groups ORDER BY sort_order")
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +268,7 @@ func (d *DB) LoadGroups() ([]*Group, error) {
 	for rows.Next() {
 		var g Group
 		var expanded int
-		if err := rows.Scan(&g.Path, &g.Name, &expanded, &g.SortOrder, &g.DefaultPath, &g.RepoURL); err != nil {
+		if err := rows.Scan(&g.Path, &g.Name, &expanded, &g.SortOrder, &g.DefaultPath, &g.RepoURL, &g.PreLaunchCommand); err != nil {
 			return nil, err
 		}
 		g.Expanded = expanded == 1

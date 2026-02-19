@@ -64,12 +64,13 @@ type Session struct {
 }
 
 type Group struct {
-	Path        string
-	Name        string
-	Expanded    bool
-	SortOrder   int
-	DefaultPath string
-	RepoURL     string
+	Path             string
+	Name             string
+	Expanded         bool
+	SortOrder        int
+	DefaultPath      string
+	RepoURL          string
+	PreLaunchCommand string
 }
 
 type StatusUpdate struct {

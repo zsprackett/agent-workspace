@@ -120,6 +120,36 @@ func TestMetadata(t *testing.T) {
 	}
 }
 
+func TestGroupPreLaunchCommand(t *testing.T) {
+	store, _ := db.Open(":memory:")
+	defer store.Close()
+	store.Migrate()
+
+	groups := []*db.Group{
+		{
+			Path:             "work",
+			Name:             "Work",
+			Expanded:         true,
+			SortOrder:        0,
+			PreLaunchCommand: "/usr/local/bin/setup.sh",
+		},
+	}
+	if err := store.SaveGroups(groups); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	got, err := store.LoadGroups()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1, got %d", len(got))
+	}
+	if got[0].PreLaunchCommand != "/usr/local/bin/setup.sh" {
+		t.Errorf("pre_launch_command: got %q want %q", got[0].PreLaunchCommand, "/usr/local/bin/setup.sh")
+	}
+}
+
 func TestRepoURLRoundTrip(t *testing.T) {
 	store, _ := db.Open(":memory:")
 	defer store.Close()
