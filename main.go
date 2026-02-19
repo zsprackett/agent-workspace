@@ -23,9 +23,11 @@ func main() {
 		return
 	}
 
-	// menu subcommand: invoked via the Ctrl+\ leader key inside a session
-	if len(os.Args) == 4 && os.Args[1] == "menu" {
-		if err := menucmd.Run(os.Args[2], os.Args[3]); err != nil {
+	// menu subcommand: invoked via the Ctrl+\ leader key inside a session.
+	// panePath is not passed as an argument; tmux sets display-popup CWD to the
+	// active pane's directory, so menucmd reads it via os.Getwd().
+	if len(os.Args) == 3 && os.Args[1] == "menu" {
+		if err := menucmd.Run(os.Args[2]); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
