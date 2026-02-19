@@ -89,6 +89,13 @@ func StopPipePane(name string) error {
 	return exec.Command("tmux", "pipe-pane", "-t", name).Run()
 }
 
+// ResizePane resizes the active pane in a tmux session to the given dimensions.
+func ResizePane(name string, cols, rows int) error {
+	return exec.Command("tmux", "resize-pane", "-t", name,
+		"-x", fmt.Sprintf("%d", cols),
+		"-y", fmt.Sprintf("%d", rows)).Run()
+}
+
 type CaptureOptions struct {
 	StartLine int
 	EndLine   int

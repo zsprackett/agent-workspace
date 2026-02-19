@@ -305,6 +305,11 @@ function render() {
           const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
           const ws = new WebSocket(`${wsProto}//${location.host}/ws/sessions/${s.ID}/terminal`);
           ws.binaryType = 'arraybuffer';
+          ws.onopen = () => {
+            // Send terminal dimensions so the server can resize the pane to match
+            // before capturing the initial screen content.
+            ws.send(JSON.stringify({ type: 'init', cols: term.cols, rows: term.rows }));
+          };
           ws.onmessage = (e) => {
             if (e.data instanceof ArrayBuffer) {
               term.write(new Uint8Array(e.data));
@@ -312,7 +317,17 @@ function render() {
               term.write(e.data);
             }
           };
-          ws.onclose = () => term.write('\r\n[disconnected]\r\n');
+          const resizeHandler = () => {
+            fitAddon.fit();
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+            }
+          };
+          window.addEventListener('resize', resizeHandler);
+          ws.onclose = () => {
+            term.write('\r\n[disconnected]\r\n');
+            window.removeEventListener('resize', resizeHandler);
+          };
           term.onData(data => {
             if (ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({ type: 'input', data }));

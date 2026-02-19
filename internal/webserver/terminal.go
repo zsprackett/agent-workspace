@@ -41,9 +41,24 @@ func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	// Send initial screen content with escape sequences.
+	// First message must be {type:"init", cols:N, rows:N} sent by the client
+	// immediately after the WebSocket opens. Resize the pane to match the web
+	// terminal so the initial capture renders at the correct width.
+	_, raw, err := conn.ReadMessage()
+	if err != nil {
+		return
+	}
+	var initMsg wsClientMsg
+	if json.Unmarshal(raw, &initMsg) == nil && initMsg.Type == "init" &&
+		initMsg.Cols > 0 && initMsg.Rows > 0 {
+		tmux.ResizePane(sess.TmuxSession, initMsg.Cols, initMsg.Rows)
+		// Brief pause so tmux processes the resize before we capture.
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Capture the current visible pane content at the (now correct) width.
 	initial, _ := tmux.CapturePane(sess.TmuxSession, tmux.CaptureOptions{
-		StartLine: -200, EscapeSeq: true,
+		StartLine: -50, EscapeSeq: true,
 	})
 	if initial != "" {
 		conn.WriteMessage(websocket.TextMessage, []byte(initial))
@@ -105,7 +120,9 @@ func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 		case "input":
 			tmux.SendText(sess.TmuxSession, msg.Data)
 		case "resize":
-			// future: tmux resize-pane
+			if msg.Cols > 0 && msg.Rows > 0 {
+				tmux.ResizePane(sess.TmuxSession, msg.Cols, msg.Rows)
+			}
 		}
 	}
 }
