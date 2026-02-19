@@ -67,10 +67,13 @@ Names follow the pattern `agws_<sanitized-title>-<hex-timestamp>` where the pref
 
 ### In-session Key Bindings
 
-Key bindings are set on the tmux session in `tmux.AttachSession` and unbound on detach. The status bar reads running/waiting/total counts from a temp file updated every 5 seconds by a goroutine. Mouse mode is enabled on attach and disabled on detach.
+A single leader key `Ctrl+\` is bound on attach and unbound on detach. Pressing it opens a `tmux display-popup` running `agent-workspace menu <tmux-session-name>`, handled by the `menu` subcommand in `main.go` via `internal/ui/menucmd`. The popup CWD is the active pane's directory (set by tmux), so `menucmd` reads it via `os.Getwd()`.
 
-`Ctrl+N` opens a `tmux display-popup` running `agent-workspace notes <tmux-session-name>`, which is handled by the `notes` subcommand in `main.go` via `internal/ui/notescmd`.
+Menu keys: `s` git status, `d` git diff, `p` open PR, `n` notes, `t` terminal split, `x` detach.
 
-### Session Notes Subcommand
+The status bar reads running/waiting/total counts from a temp file updated every 5 seconds by a goroutine. Mouse mode is enabled on attach and disabled on detach.
 
-`agent-workspace notes <tmux-session-name>` opens a standalone tview notes editor. It looks up the session by tmux name via `db.GetSessionByTmuxName`, displays an editable TextArea pre-filled with existing notes, and saves to SQLite on Save.
+### Subcommands
+
+- `agent-workspace menu <tmux-session-name>` -- opens the command menu legend (`internal/ui/menucmd`). Dispatches tmux commands on keypress; for notes, opens a nested display-popup running the notes subcommand.
+- `agent-workspace notes <tmux-session-name>` -- opens a standalone tview notes editor (`internal/ui/notescmd`). Looks up the session via `db.GetSessionByTmuxName`, shows an editable TextArea pre-filled with existing notes, saves to SQLite on Save.
