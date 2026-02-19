@@ -72,10 +72,28 @@ func SendKeys(name, keys string) error {
 	return exec.Command("tmux", "send-keys", "-t", name, keys, "Enter").Run()
 }
 
+// SendText sends literal text to a tmux pane without appending Enter.
+// Uses the -l flag to pass the text through literally without key binding lookup.
+func SendText(name, text string) error {
+	return exec.Command("tmux", "send-keys", "-t", name, "-l", text).Run()
+}
+
+// PipePane redirects tmux pane output to a shell command.
+// The -o flag opens the pipe only if not already open.
+func PipePane(name, command string) error {
+	return exec.Command("tmux", "pipe-pane", "-o", "-t", name, command).Run()
+}
+
+// StopPipePane closes the pipe-pane for the given session.
+func StopPipePane(name string) error {
+	return exec.Command("tmux", "pipe-pane", "-t", name).Run()
+}
+
 type CaptureOptions struct {
 	StartLine int
 	EndLine   int
 	Join      bool
+	EscapeSeq bool // adds -e flag for ANSI escape sequences
 }
 
 func CapturePane(name string, opts CaptureOptions) (string, error) {
@@ -86,6 +104,9 @@ func CapturePane(name string, opts CaptureOptions) (string, error) {
 	}
 	if opts.Join {
 		args = append(args, "-J")
+	}
+	if opts.EscapeSeq {
+		args = append(args, "-e")
 	}
 	out, err := exec.Command("tmux", args...).Output()
 	if err != nil {
