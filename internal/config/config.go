@@ -17,10 +17,25 @@ type NotificationsConfig struct {
 	NtfyURL string `json:"ntfy"`
 }
 
+type TLSConfig struct {
+	Mode     string `json:"mode"`     // "self-signed", "autocert", "manual", or "" (disabled)
+	Domain   string `json:"domain"`   // required for autocert
+	CertFile string `json:"certFile"` // required for manual
+	KeyFile  string `json:"keyFile"`  // required for manual
+	CacheDir string `json:"cacheDir"` // for autocert and self-signed; defaults to ~/.agent-workspace/certs
+}
+
+type AuthConfig struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
 type WebserverConfig struct {
-	Enabled bool   `json:"enabled"`
-	Port    int    `json:"port"`
-	Host    string `json:"host"`
+	Enabled bool       `json:"enabled"`
+	Port    int        `json:"port"`
+	Host    string     `json:"host"`
+	TLS     TLSConfig  `json:"tls"`
+	Auth    AuthConfig `json:"auth"`
 }
 
 type Config struct {

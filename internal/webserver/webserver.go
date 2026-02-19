@@ -6,18 +6,37 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/zsprackett/agent-workspace/internal/db"
 	"github.com/zsprackett/agent-workspace/internal/events"
 	"github.com/zsprackett/agent-workspace/internal/session"
 )
 
+type TLSConfig struct {
+	Mode     string // "self-signed", "autocert", "manual", or "" (plain HTTP)
+	Domain   string // autocert only
+	CertFile string // manual only
+	KeyFile  string // manual only
+	CacheDir string // autocert + self-signed
+}
+
+type AuthConfig struct {
+	Username string
+	Password string
+}
+
 type Config struct {
 	Enabled bool
 	Port    int
 	Host    string
+	TLS     TLSConfig
+	Auth    AuthConfig
 }
 
 type Server struct {
@@ -65,6 +84,7 @@ func (s *Server) removeClient(ch chan events.Event) {
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /cert", s.handleCert)
 	mux.HandleFunc("GET /api/sessions", s.handleSessions)
 	mux.HandleFunc("POST /api/sessions", s.handleCreateSession)
 	mux.HandleFunc("POST /api/sessions/{id}/notes", s.handleUpdateNotes)
@@ -79,17 +99,92 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
+func basicAuthMiddleware(username, password string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u, p, ok := r.BasicAuth()
+		if !ok || u != username || p != password {
+			w.Header().Set("WWW-Authenticate", `Basic realm="agent-workspace"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) tlsCacheDir() string {
+	if s.cfg.TLS.CacheDir != "" {
+		return s.cfg.TLS.CacheDir
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".agent-workspace", "certs")
+}
+
 func (s *Server) Start() error {
 	if !s.cfg.Enabled {
 		return nil
 	}
+
+	handler := s.Handler()
+	if s.cfg.Auth.Username != "" {
+		// Wrap everything except /cert so the cert can be downloaded before
+		// the browser has trusted it (chicken-and-egg with Basic Auth over TLS).
+		muxHandler := handler
+		authed := basicAuthMiddleware(s.cfg.Auth.Username, s.cfg.Auth.Password, handler)
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/cert" {
+				muxHandler.ServeHTTP(w, r)
+			} else {
+				authed.ServeHTTP(w, r)
+			}
+		})
+	}
+
 	addr := fmt.Sprintf("%s:%d", s.cfg.Host, s.cfg.Port)
-	srv := &http.Server{Addr: addr, Handler: s.Handler()}
-	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			fmt.Printf("webserver: %v\n", err)
+	srv := &http.Server{Addr: addr, Handler: handler}
+
+	switch s.cfg.TLS.Mode {
+	case "autocert":
+		m := &autocert.Manager{
+			Prompt:     autocert.AcceptTOS,
+			HostPolicy: autocert.HostWhitelist(s.cfg.TLS.Domain),
+			Cache:      autocert.DirCache(s.tlsCacheDir()),
 		}
-	}()
+		srv.TLSConfig = m.TLSConfig()
+		// Serve HTTP-01 ACME challenges and redirect plain HTTP to HTTPS.
+		go http.ListenAndServe(":80", m.HTTPHandler(nil))
+		go func() {
+			if err := srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+				fmt.Printf("webserver: %v\n", err)
+			}
+		}()
+
+	case "self-signed":
+		tlsCfg, err := selfSignedTLS(s.tlsCacheDir())
+		if err != nil {
+			return fmt.Errorf("self-signed TLS: %w", err)
+		}
+		srv.TLSConfig = tlsCfg
+		go func() {
+			if err := srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+				fmt.Printf("webserver: %v\n", err)
+			}
+		}()
+
+	case "manual":
+		go func() {
+			if err := srv.ListenAndServeTLS(s.cfg.TLS.CertFile, s.cfg.TLS.KeyFile); err != nil && err != http.ErrServerClosed {
+				fmt.Printf("webserver: %v\n", err)
+			}
+		}()
+
+	default: // plain HTTP
+		go func() {
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				fmt.Printf("webserver: %v\n", err)
+			}
+		}()
+	}
+
 	return nil
 }
 
@@ -247,6 +342,24 @@ func (s *Server) handleTerminalProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	target, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
 	httputil.NewSingleHostReverseProxy(target).ServeHTTP(w, r)
+}
+
+// handleCert serves the self-signed certificate as a download so clients
+// (e.g. iOS) can install and trust it. Intentionally unauthenticated.
+func (s *Server) handleCert(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.TLS.Mode != "self-signed" {
+		http.Error(w, "not using self-signed TLS", http.StatusNotFound)
+		return
+	}
+	certFile := filepath.Join(s.tlsCacheDir(), "self-signed.crt")
+	data, err := os.ReadFile(certFile)
+	if err != nil {
+		http.Error(w, "cert not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-x509-ca-cert")
+	w.Header().Set("Content-Disposition", `attachment; filename="agent-workspace.crt"`)
+	w.Write(data)
 }
 
 func (s *Server) handleKillTTYD(w http.ResponseWriter, r *http.Request) {

@@ -55,6 +55,17 @@ func NewApp(store *db.DB, cfg config.Config) *App {
 		Enabled: cfg.Webserver.Enabled,
 		Port:    cfg.Webserver.Port,
 		Host:    cfg.Webserver.Host,
+		TLS: webserver.TLSConfig{
+			Mode:     cfg.Webserver.TLS.Mode,
+			Domain:   cfg.Webserver.TLS.Domain,
+			CertFile: cfg.Webserver.TLS.CertFile,
+			KeyFile:  cfg.Webserver.TLS.KeyFile,
+			CacheDir: cfg.Webserver.TLS.CacheDir,
+		},
+		Auth: webserver.AuthConfig{
+			Username: cfg.Webserver.Auth.Username,
+			Password: cfg.Webserver.Auth.Password,
+		},
 	})
 
 	a.mon = monitor.New(store, func() {
