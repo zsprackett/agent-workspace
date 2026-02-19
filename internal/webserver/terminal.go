@@ -43,7 +43,7 @@ func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 
 	// First message must be {type:"init", cols:N, rows:N} sent by the client
 	// immediately after the WebSocket opens. Resize the pane to match the web
-	// terminal so the initial capture renders at the correct width.
+	// terminal width so subsequent output is rendered at the correct column count.
 	_, raw, err := conn.ReadMessage()
 	if err != nil {
 		return
@@ -52,19 +52,12 @@ func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 	if json.Unmarshal(raw, &initMsg) == nil && initMsg.Type == "init" &&
 		initMsg.Cols > 0 && initMsg.Rows > 0 {
 		tmux.ResizePane(sess.TmuxSession, initMsg.Cols, initMsg.Rows)
-		// Wait for the application to receive SIGWINCH and repaint at the new
-		// width before we capture. 50ms is too short for Claude Code's TUI.
-		time.Sleep(300 * time.Millisecond)
 	}
 
-	// Capture the current visible pane only (StartLine:0 = top of visible area,
-	// no scrollback) so we get the repainted screen at the new width.
-	initial, _ := tmux.CapturePane(sess.TmuxSession, tmux.CaptureOptions{
-		StartLine: 0, EscapeSeq: true,
-	})
-	if initial != "" {
-		conn.WriteMessage(websocket.TextMessage, []byte(initial))
-	}
+	// No initial capture: CapturePane returns pre-rendered rows at the old
+	// terminal width which wrap incorrectly in xterm. Instead, just start
+	// pipe-pane; the first full repaint the application emits (htop ~1s,
+	// Claude Code on next output) will be at the correct post-resize width.
 
 	// Start pipe-pane streaming to a temp file.
 	pipeFile := fmt.Sprintf("/tmp/agws-term-%s", id)
