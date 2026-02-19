@@ -165,6 +165,7 @@ func (m *Manager) Rename(id, title string) error {
 type UpdateOptions struct {
 	Title       string
 	Tool        db.Tool
+	Command     string
 	ProjectPath string
 	GroupPath   string
 }
@@ -179,7 +180,7 @@ func (m *Manager) Update(id string, opts UpdateOptions) error {
 	}
 	s.Title = opts.Title
 	s.Tool = opts.Tool
-	s.Command = db.ToolCommand(opts.Tool, "")
+	s.Command = db.ToolCommand(opts.Tool, opts.Command)
 	s.ProjectPath = opts.ProjectPath
 	s.GroupPath = opts.GroupPath
 	if err := m.db.SaveSession(s); err != nil {

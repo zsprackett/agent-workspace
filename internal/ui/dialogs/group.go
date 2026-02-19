@@ -17,8 +17,8 @@ func GroupDialog(title, currentName, currentRepoURL, currentDefaultTool string, 
 	form.SetBackgroundColor(tcell.ColorDefault)
 	form.SetFieldBackgroundColor(tcell.ColorDefault)
 
-	toolLabels := []string{"(none)", "claude", "opencode", "gemini", "codex", "shell", "custom"}
-	toolValues := []string{"", "claude", "opencode", "gemini", "codex", "shell", "custom"}
+	toolLabels := []string{"(none)", "claude", "opencode", "gemini", "codex", "custom"}
+	toolValues := []string{"", "claude", "opencode", "gemini", "codex", "custom"}
 	currentToolIdx := 0
 	for i, v := range toolValues {
 		if v == currentDefaultTool {

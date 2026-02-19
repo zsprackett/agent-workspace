@@ -1,6 +1,6 @@
 # Agent Workspace
 
-A terminal-based session manager for AI coding tools. Manages multiple Claude, OpenCode, Gemini, Codex, or custom shell sessions in tmux with Git worktree integration and a TUI built on [tview](https://github.com/rivo/tview).
+A terminal-based session manager for AI coding tools. Manages multiple Claude, OpenCode, Gemini, Codex, or custom command sessions in tmux with Git worktree integration and a TUI built on [tview](https://github.com/rivo/tview).
 
 ## Features
 
@@ -125,7 +125,7 @@ While attached to a session, press `Ctrl+\` to open the command menu, then `n` t
 - `opencode` - OpenCode
 - `gemini` - Gemini CLI
 - `codex` - OpenAI Codex CLI
-- `shell` - Custom shell command
+- `custom` - Any command you specify (e.g. `/bin/bash`, `my-tool --flag`)
 
 ## Status Icons
 

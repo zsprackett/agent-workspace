@@ -145,6 +145,7 @@ func (a *App) onNew(groupPath string) {
 			opts := session.CreateOptions{
 				Title:     result.Title,
 				Tool:      result.Tool,
+				Command:   result.Command,
 				GroupPath: result.GroupPath,
 			}
 			// Look up the selected group's repo URL.
@@ -336,6 +337,7 @@ func (a *App) onEdit(item listItem) {
 				if err := a.mgr.Update(item.session.ID, session.UpdateOptions{
 					Title:       result.Title,
 					Tool:        result.Tool,
+					Command:     result.Command,
 					ProjectPath: result.ProjectPath,
 					GroupPath:   result.GroupPath,
 				}); err != nil {

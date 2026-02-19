@@ -9,6 +9,7 @@ import (
 type EditSessionResult struct {
 	Title       string
 	Tool        db.Tool
+	Command     string
 	ProjectPath string
 	GroupPath   string
 }
@@ -21,7 +22,7 @@ func EditSessionDialog(s *db.Session, groups []*db.Group,
 	form.SetBackgroundColor(tcell.ColorDefault)
 	form.SetFieldBackgroundColor(tcell.ColorDefault)
 
-	tools := []string{"claude", "opencode", "gemini", "codex", "shell", "custom"}
+	tools := []string{"claude", "opencode", "gemini", "codex", "custom"}
 	currentToolIdx := 0
 	for i, t := range tools {
 		if t == string(s.Tool) {
@@ -48,6 +49,40 @@ func EditSessionDialog(s *db.Session, groups []*db.Group,
 		form.AddDropDown("Group", groupNames, currentGroupIdx, nil)
 	}
 
+	var commandShown bool
+	currentCmd := ""
+	if s.Tool == db.ToolCustom {
+		currentCmd = s.Command
+	}
+
+	setCommandVisible := func(show bool) {
+		if show == commandShown {
+			return
+		}
+		if show {
+			form.AddFormItem(tview.NewInputField().
+				SetLabel("Command").
+				SetFieldWidth(40).
+				SetText(currentCmd))
+			commandShown = true
+		} else {
+			if commandShown {
+				currentCmd = form.GetFormItemByLabel("Command").(*tview.InputField).GetText()
+			}
+			form.RemoveFormItem(form.GetFormItemCount() - 1)
+			commandShown = false
+		}
+	}
+
+	toolDD := form.GetFormItemByLabel("Tool").(*tview.DropDown)
+	toolDD.SetSelectedFunc(func(text string, _ int) {
+		setCommandVisible(text == "custom")
+	})
+
+	if s.Tool == db.ToolCustom {
+		setCommandVisible(true)
+	}
+
 	form.AddButton("Save", func() {
 		title := form.GetFormItemByLabel("Title").(*tview.InputField).GetText()
 		_, toolStr := form.GetFormItemByLabel("Tool").(*tview.DropDown).GetCurrentOption()
@@ -64,9 +99,15 @@ func EditSessionDialog(s *db.Session, groups []*db.Group,
 			}
 		}
 
+		command := ""
+		if commandShown {
+			command = form.GetFormItemByLabel("Command").(*tview.InputField).GetText()
+		}
+
 		onSubmit(EditSessionResult{
 			Title:       title,
 			Tool:        db.Tool(toolStr),
+			Command:     command,
 			ProjectPath: projectPath,
 			GroupPath:   groupPath,
 		})
