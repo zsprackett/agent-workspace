@@ -9,9 +9,19 @@ import (
 	"github.com/zsprackett/agent-workspace/internal/db"
 	"github.com/zsprackett/agent-workspace/internal/tmux"
 	"github.com/zsprackett/agent-workspace/internal/ui"
+	"github.com/zsprackett/agent-workspace/internal/ui/notescmd"
 )
 
 func main() {
+	// notes subcommand: invoked from within a tmux session via display-popup
+	if len(os.Args) == 3 && os.Args[1] == "notes" {
+		if err := notescmd.Run(os.Args[2]); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	if !tmux.IsAvailable() {
 		fmt.Fprintln(os.Stderr, "error: tmux is required but not found in PATH")
 		os.Exit(1)

@@ -61,6 +61,8 @@ type Session struct {
 	WorktreeBranch  string
 	Acknowledged    bool
 	RepoURL         string
+	HasUncommitted  bool
+	Notes           string
 }
 
 type Group struct {

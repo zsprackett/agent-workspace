@@ -11,12 +11,18 @@ type WorktreeConfig struct {
 	DefaultBaseBranch string `json:"defaultBaseBranch"`
 }
 
+type NotificationsConfig struct {
+	Enabled bool   `json:"enabled"`
+	Webhook string `json:"webhook"`
+}
+
 type Config struct {
-	DefaultTool  string         `json:"defaultTool"`
-	DefaultGroup string         `json:"defaultGroup"`
-	Worktree     WorktreeConfig `json:"worktree"`
-	ReposDir     string         `json:"reposDir"`
-	WorktreesDir string         `json:"worktreesDir"`
+	DefaultTool   string              `json:"defaultTool"`
+	DefaultGroup  string              `json:"defaultGroup"`
+	Worktree      WorktreeConfig      `json:"worktree"`
+	ReposDir      string              `json:"reposDir"`
+	WorktreesDir  string              `json:"worktreesDir"`
+	Notifications NotificationsConfig `json:"notifications"`
 }
 
 func Defaults() Config {

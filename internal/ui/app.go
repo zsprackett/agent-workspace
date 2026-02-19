@@ -13,6 +13,7 @@ import (
 	"github.com/zsprackett/agent-workspace/internal/db"
 	"github.com/zsprackett/agent-workspace/internal/git"
 	"github.com/zsprackett/agent-workspace/internal/monitor"
+	"github.com/zsprackett/agent-workspace/internal/notify"
 	"github.com/zsprackett/agent-workspace/internal/syncer"
 	"github.com/zsprackett/agent-workspace/internal/session"
 	"github.com/zsprackett/agent-workspace/internal/tmux"
@@ -42,11 +43,15 @@ func NewApp(store *db.DB, cfg config.Config) *App {
 	a.pages = tview.NewPages()
 	a.home = NewHome(a.tapp)
 
+	notifier := notify.New(notify.Config{
+		Enabled: cfg.Notifications.Enabled,
+		Webhook: cfg.Notifications.Webhook,
+	})
 	a.mon = monitor.New(store, func() {
 		a.tapp.QueueUpdateDraw(func() {
 			a.refreshHome()
 		})
-	})
+	}, notifier)
 
 	a.syn = syncer.New(store, cfg.ReposDir)
 
@@ -69,6 +74,7 @@ func NewApp(store *db.DB, cfg config.Config) *App {
 		a.onNewGroup,
 		a.onMove,
 		a.onAttach,
+		a.onNotes,
 		func() { a.tapp.Stop() },
 	)
 
@@ -358,6 +364,23 @@ func (a *App) onNewGroup() {
 		a.refreshHome()
 	}, func() { a.closeDialog("new-group") })
 	a.showDialog("new-group", form, 65, 12)
+}
+
+func (a *App) onNotes(item listItem) {
+	if item.session == nil {
+		return
+	}
+	s := item.session
+	form := dialogs.NotesDialog(s.Title, s.Notes,
+		func(notes string) {
+			a.closeDialog("notes")
+			a.store.UpdateSessionNotes(s.ID, notes)
+			a.store.Touch()
+			a.refreshHome()
+		},
+		func() { a.closeDialog("notes") },
+	)
+	a.showDialog("notes", form, 60, 18)
 }
 
 func (a *App) onMove(item listItem) {

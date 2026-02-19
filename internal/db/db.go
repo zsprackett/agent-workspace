@@ -77,6 +77,20 @@ func (d *DB) Migrate() error {
 		}
 	}
 
+	// Add has_uncommitted column to existing DBs; ignore "duplicate column" errors.
+	if _, alterErr := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN has_uncommitted INTEGER NOT NULL DEFAULT 0`); alterErr != nil {
+		if !isDuplicateColumnError(alterErr) {
+			return fmt.Errorf("alter sessions add has_uncommitted: %w", alterErr)
+		}
+	}
+
+	// Add notes column to existing DBs; ignore "duplicate column" errors.
+	if _, alterErr := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN notes TEXT NOT NULL DEFAULT ''`); alterErr != nil {
+		if !isDuplicateColumnError(alterErr) {
+			return fmt.Errorf("alter sessions add notes: %w", alterErr)
+		}
+	}
+
 	_, err = d.sql.Exec(`
 		CREATE TABLE IF NOT EXISTS groups (
 			path         TEXT PRIMARY KEY,
@@ -108,13 +122,13 @@ func (d *DB) SaveSession(s *Session) error {
 			command, tool, status, tmux_session,
 			created_at, last_accessed,
 			parent_session_id, worktree_path, worktree_repo, worktree_branch,
-			acknowledged, repo_url
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			acknowledged, repo_url, has_uncommitted, notes
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		s.ID, s.Title, s.ProjectPath, s.GroupPath, s.SortOrder,
 		s.Command, string(s.Tool), string(s.Status), s.TmuxSession,
 		s.CreatedAt.UnixMilli(), s.LastAccessed.UnixMilli(),
 		s.ParentSessionID, s.WorktreePath, s.WorktreeRepo, s.WorktreeBranch,
-		boolToInt(s.Acknowledged), s.RepoURL,
+		boolToInt(s.Acknowledged), s.RepoURL, boolToInt(s.HasUncommitted), s.Notes,
 	)
 	return err
 }
@@ -125,8 +139,19 @@ func (d *DB) GetSession(id string) (*Session, error) {
 			command, tool, status, tmux_session,
 			created_at, last_accessed,
 			parent_session_id, worktree_path, worktree_repo, worktree_branch,
-			acknowledged, repo_url
+			acknowledged, repo_url, has_uncommitted, notes
 		FROM sessions WHERE id = ?`, id)
+	return scanSession(row)
+}
+
+func (d *DB) GetSessionByTmuxName(tmuxSession string) (*Session, error) {
+	row := d.sql.QueryRow(`
+		SELECT id, title, project_path, group_path, sort_order,
+			command, tool, status, tmux_session,
+			created_at, last_accessed,
+			parent_session_id, worktree_path, worktree_repo, worktree_branch,
+			acknowledged, repo_url, has_uncommitted, notes
+		FROM sessions WHERE tmux_session = ?`, tmuxSession)
 	return scanSession(row)
 }
 
@@ -136,8 +161,31 @@ func (d *DB) LoadSessions() ([]*Session, error) {
 			command, tool, status, tmux_session,
 			created_at, last_accessed,
 			parent_session_id, worktree_path, worktree_repo, worktree_branch,
-			acknowledged, repo_url
+			acknowledged, repo_url, has_uncommitted, notes
 		FROM sessions ORDER BY sort_order`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sessions []*Session
+	for rows.Next() {
+		s, err := scanSession(rows)
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, s)
+	}
+	return sessions, rows.Err()
+}
+
+func (d *DB) LoadSessionsByGroupPath(groupPath string) ([]*Session, error) {
+	rows, err := d.sql.Query(`
+		SELECT id, title, project_path, group_path, sort_order,
+			command, tool, status, tmux_session,
+			created_at, last_accessed,
+			parent_session_id, worktree_path, worktree_repo, worktree_branch,
+			acknowledged, repo_url, has_uncommitted, notes
+		FROM sessions WHERE group_path = ? ORDER BY sort_order`, groupPath)
 	if err != nil {
 		return nil, err
 	}
@@ -190,6 +238,16 @@ func (d *DB) SetAcknowledged(id string, ack bool) error {
 	return err
 }
 
+func (d *DB) UpdateSessionDirty(id string, dirty bool) error {
+	_, err := d.sql.Exec("UPDATE sessions SET has_uncommitted = ? WHERE id = ?", boolToInt(dirty), id)
+	return err
+}
+
+func (d *DB) UpdateSessionNotes(id, notes string) error {
+	_, err := d.sql.Exec("UPDATE sessions SET notes = ? WHERE id = ?", notes, id)
+	return err
+}
+
 // rowScanner is implemented by both *sql.Row and *sql.Rows
 type rowScanner interface {
 	Scan(dest ...any) error
@@ -199,13 +257,13 @@ func scanSession(row rowScanner) (*Session, error) {
 	var s Session
 	var tool, status string
 	var createdAt, lastAccessed int64
-	var ack int
+	var ack, hasUncommitted int
 	err := row.Scan(
 		&s.ID, &s.Title, &s.ProjectPath, &s.GroupPath, &s.SortOrder,
 		&s.Command, &tool, &status, &s.TmuxSession,
 		&createdAt, &lastAccessed,
 		&s.ParentSessionID, &s.WorktreePath, &s.WorktreeRepo, &s.WorktreeBranch,
-		&ack, &s.RepoURL,
+		&ack, &s.RepoURL, &hasUncommitted, &s.Notes,
 	)
 	if err != nil {
 		return nil, err
@@ -215,6 +273,7 @@ func scanSession(row rowScanner) (*Session, error) {
 	s.CreatedAt = time.UnixMilli(createdAt)
 	s.LastAccessed = time.UnixMilli(lastAccessed)
 	s.Acknowledged = ack == 1
+	s.HasUncommitted = hasUncommitted == 1
 	return &s, nil
 }
 

@@ -34,14 +34,15 @@ ui.App  → session.Manager (CRUD) + monitor.Monitor (status) + syncer.Syncer (g
 
 ### Package Roles
 
-- **`internal/config/`** - Loads `~/.agent-workspace/config.json`; provides paths for DB, repos, and worktrees.
-- **`internal/db/`** - All SQLite access. `types.go` defines `Session`, `Group`, `SessionStatus`, `Tool`. `db.go` has all queries. Single connection, WAL mode. Migrations use `ALTER TABLE ADD COLUMN` with duplicate-column error suppression for additive schema changes.
-- **`internal/session/`** - `Manager` handles create/stop/restart/delete/attach. Creating a session always creates a real tmux session. `GenerateTitle()` produces adjective-noun names used as both the session title and git branch name.
+- **`internal/config/`** - Loads `~/.agent-workspace/config.json`; provides paths for DB, repos, and worktrees. Includes `NotificationsConfig` (enabled, webhook).
+- **`internal/db/`** - All SQLite access. `types.go` defines `Session`, `Group`, `SessionStatus`, `Tool`. `db.go` has all queries. Single connection, WAL mode. Migrations use `ALTER TABLE ADD COLUMN` with duplicate-column error suppression for additive schema changes. `Session` carries `HasUncommitted bool` and `Notes string`.
+- **`internal/session/`** - `Manager` handles create/stop/restart/delete/attach. Creating a session always creates a real tmux session. `GenerateTitle()` produces adjective-noun names used as both the session title and git branch name. On detach, updates `has_uncommitted` via `git.IsWorktreeDirty`.
 - **`internal/tmux/`** - Raw tmux command wrappers. `status.go` contains the status detection logic: `ParseToolStatus` uses regex on the last 30 lines of pane output; `IsPaneWaitingForInput` uses `ps wchan=ttyin` on the pane's foreground process.
-- **`internal/monitor/`** - Background goroutine (500ms tick) that polls all tmux sessions, updates statuses in DB, and triggers a UI redraw via `QueueUpdateDraw`.
-- **`internal/syncer/`** - Background goroutine (2-minute tick) that runs `git fetch` on all bare repos associated with groups.
-- **`internal/git/`** - Bare clone and worktree operations. Bare repos live at `~/.agent-workspace/repos/<host>/<owner>/<repo>.git`; worktrees at `~/.agent-workspace/worktrees/<host>/<owner>/<repo>/<branch>`.
-- **`internal/ui/`** - TUI built on `tview`. `app.go` is the controller that wires DB, managers, and dialogs. `home.go` is the main screen. `dialogs/` contains modal forms.
+- **`internal/monitor/`** - Background goroutine (500ms tick) that polls all tmux sessions, updates statuses in DB, and triggers a UI redraw via `QueueUpdateDraw`. Tracks previous statuses to fire `notify.Notifier.Notify` on transitions to `waiting`.
+- **`internal/notify/`** - `Notifier` sends macOS system notifications via `osascript` and optional JSON webhook POSTs when a session needs input.
+- **`internal/syncer/`** - Background goroutine (2-minute tick) that runs `git fetch` on all bare repos associated with groups. After each fetch, updates `has_uncommitted` for sessions in that group.
+- **`internal/git/`** - Bare clone and worktree operations. Bare repos live at `~/.agent-workspace/repos/<host>/<owner>/<repo>.git`; worktrees at `~/.agent-workspace/worktrees/<host>/<owner>/<repo>/<branch>`. `IsWorktreeDirty` runs `git status --porcelain`.
+- **`internal/ui/`** - TUI built on `tview`. `app.go` is the controller that wires DB, managers, and dialogs. `home.go` is the main screen. `dialogs/` contains modal forms including `notes.go`. `notescmd/` is the standalone notes editor invoked as a subcommand inside tmux display-popup.
 
 ### Status Detection
 
@@ -66,4 +67,10 @@ Names follow the pattern `agws_<sanitized-title>-<hex-timestamp>` where the pref
 
 ### In-session Key Bindings
 
-Key bindings are set on the tmux session in `tmux.AttachSession` and unbound on detach. The status bar reads running/waiting/total counts from a temp file updated every 5 seconds by a goroutine.
+Key bindings are set on the tmux session in `tmux.AttachSession` and unbound on detach. The status bar reads running/waiting/total counts from a temp file updated every 5 seconds by a goroutine. Mouse mode is enabled on attach and disabled on detach.
+
+`Ctrl+N` opens a `tmux display-popup` running `agent-workspace notes <tmux-session-name>`, which is handled by the `notes` subcommand in `main.go` via `internal/ui/notescmd`.
+
+### Session Notes Subcommand
+
+`agent-workspace notes <tmux-session-name>` opens a standalone tview notes editor. It looks up the session by tmux name via `db.GetSessionByTmuxName`, displays an editable TextArea pre-filled with existing notes, and saves to SQLite on Save.

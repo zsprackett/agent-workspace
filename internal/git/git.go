@@ -232,3 +232,12 @@ func FetchBare(repoDir string) error {
 	}
 	return nil
 }
+
+// IsWorktreeDirty reports whether a git worktree at path has uncommitted changes.
+func IsWorktreeDirty(path string) (bool, error) {
+	out, err := exec.Command("git", "-C", path, "status", "--porcelain").Output()
+	if err != nil {
+		return false, fmt.Errorf("git status: %w", err)
+	}
+	return len(strings.TrimSpace(string(out))) > 0, nil
+}
