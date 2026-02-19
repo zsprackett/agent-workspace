@@ -10,12 +10,12 @@ import (
 )
 
 const menuText = `
-  [green]g[-]  Git status
-  [green]f[-]  Git diff
+  [green]s[-]  Git status
+  [green]d[-]  Git diff
   [green]p[-]  Open PR in browser
   [green]n[-]  Session notes
   [green]t[-]  Open terminal split
-  [green]d[-]  Detach to dashboard
+  [green]x[-]  Detach to dashboard
 
   [::d]Esc  cancel[-]`
 
@@ -40,10 +40,10 @@ func Run(tmuxSession string) error {
 			return nil
 		}
 		switch event.Rune() {
-		case 'g':
+		case 's':
 			app.Stop()
 			gitStatus(panePath)
-		case 'f':
+		case 'd':
 			app.Stop()
 			gitDiff(panePath)
 		case 'p':
@@ -55,7 +55,7 @@ func Run(tmuxSession string) error {
 		case 't':
 			app.Stop()
 			openTerminal(panePath)
-		case 'd':
+		case 'x':
 			app.Stop()
 			exec.Command("tmux", "detach-client").Run()
 		}

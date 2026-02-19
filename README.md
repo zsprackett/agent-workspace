@@ -58,12 +58,12 @@ Press `Ctrl+\` to open the command menu. A floating legend appears -- press the 
 
 | Key | Action |
 |-----|--------|
-| `g` | Git status |
-| `f` | Git diff |
+| `s` | Git status |
+| `d` | Git diff |
 | `p` | Open GitHub PR in browser |
 | `n` | View / edit session notes |
 | `t` | Open terminal split |
-| `d` | Detach to dashboard |
+| `x` | Detach to dashboard |
 
 Mouse mode is enabled while attached: scroll wheel navigates history, click-drag selects text. Hold `Option`/`Alt` to bypass tmux mouse handling for terminal-level copy.
 

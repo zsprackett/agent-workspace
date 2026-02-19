@@ -28,12 +28,12 @@ const helpText = `[yellow]Dashboard Keys[-]
   [green]Ctrl+\[-]   Open command menu
 
   [yellow]Menu keys[-]
-  [green]g[-]         Git status
-  [green]f[-]         Git diff
+  [green]s[-]         Git status
+  [green]d[-]         Git diff
   [green]p[-]         Open pull request in browser
   [green]n[-]         Session notes
   [green]t[-]         Open terminal split
-  [green]d[-]         Detach to dashboard
+  [green]x[-]         Detach to dashboard
 
 Press [green]Escape[-] or [green]?[-] to close.`
 
