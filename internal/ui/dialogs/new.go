@@ -9,6 +9,7 @@ import (
 type NewSessionResult struct {
 	Title       string
 	Tool        db.Tool
+	Command     string
 	ProjectPath string
 	GroupPath   string
 }
@@ -68,6 +69,28 @@ func NewSessionDialog(groups []*db.Group, defaultTool string, defaultGroup strin
 		form.AddDropDown("Group", groupNames, defaultGroupIdx, nil)
 	}
 
+	var commandShown bool
+	currentCmd := ""
+
+	setCommandVisible := func(show bool) {
+		if show == commandShown {
+			return
+		}
+		if show {
+			form.AddFormItem(tview.NewInputField().
+				SetLabel("Command").
+				SetFieldWidth(40).
+				SetText(currentCmd))
+			commandShown = true
+		} else {
+			if commandShown {
+				currentCmd = form.GetFormItemByLabel("Command").(*tview.InputField).GetText()
+			}
+			form.RemoveFormItem(form.GetFormItemCount() - 1)
+			commandShown = false
+		}
+	}
+
 	if len(groups) > 0 {
 		groupDD := form.GetFormItemByLabel("Group").(*tview.DropDown)
 		toolDD := form.GetFormItemByLabel("Tool").(*tview.DropDown)
@@ -81,10 +104,20 @@ func NewSessionDialog(groups []*db.Group, defaultTool string, defaultGroup strin
 							break
 						}
 					}
+					setCommandVisible(newTool == "custom")
 					break
 				}
 			}
 		})
+	}
+
+	toolDD := form.GetFormItemByLabel("Tool").(*tview.DropDown)
+	toolDD.SetSelectedFunc(func(text string, _ int) {
+		setCommandVisible(text == "custom")
+	})
+
+	if initialTool == "custom" {
+		setCommandVisible(true)
 	}
 
 	form.AddButton("Create", func() {
@@ -103,9 +136,15 @@ func NewSessionDialog(groups []*db.Group, defaultTool string, defaultGroup strin
 			}
 		}
 
+		command := ""
+		if commandShown {
+			command = form.GetFormItemByLabel("Command").(*tview.InputField).GetText()
+		}
+
 		onSubmit(NewSessionResult{
 			Title:       title,
 			Tool:        db.Tool(toolStr),
+			Command:     command,
 			ProjectPath: projectPath,
 			GroupPath:   groupPath,
 		})
