@@ -7,6 +7,7 @@ A terminal-based session manager for AI coding tools. Manages multiple Claude, O
 - **Session management** - Create, start, stop, restart, and delete tool sessions
 - **Group organization** - Organize sessions into named groups
 - **Git worktree integration** - Automatically creates isolated Git worktrees from a GitHub URL set on a group
+- **Pre-launch commands** - Run a shell command before each new session; on failure shows output and asks whether to continue
 - **Live status monitoring** - Detects running, waiting, idle, error, and stopped states by parsing tmux output
 - **Persistent state** - Stores session metadata in SQLite at `~/.agent-workspace/state.db`
 - **In-session shortcuts** - Keyboard bindings available while attached to a session
@@ -80,6 +81,19 @@ Set a GitHub URL on a group and new sessions in that group will automatically:
 3. Launch the tool session in that worktree directory
 
 Worktrees are removed when the session is deleted.
+
+## Pre-launch Commands
+
+Set a **Pre-launch command** on a group to run a shell command before each new session is created. The command receives positional arguments describing the session context:
+
+- **No worktree:** `<cmd> <tool> <project-path>`
+- **With worktree:** `<cmd> <tool> <bare-repo-path> <worktree-path>`
+
+`<tool>` is the tool name (e.g. `claude`, `opencode`).
+
+If the command exits non-zero, a dialog shows the error output and asks whether to continue or cancel session creation. Full output is always logged to `~/.agent-workspace/prelaunch.log`.
+
+Example use cases: copy shared config files into the worktree, install dependencies, validate environment prerequisites.
 
 ## Supported Tools
 
