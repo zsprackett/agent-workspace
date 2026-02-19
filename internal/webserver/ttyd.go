@@ -68,6 +68,7 @@ func (m *ttydManager) spawn(sessionID, tmuxSession string) (int, error) {
 		"--port", fmt.Sprintf("%d", port),
 		"--once",
 		"--writable",
+		"--base-path", "/terminal/"+sessionID,
 		"tmux", "attach-session", "-t", tmuxSession,
 	)
 	if err := cmd.Start(); err != nil {

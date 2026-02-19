@@ -314,17 +314,11 @@ function render() {
             // Reuse the existing iframe -- avoids terminal reload on re-render.
             termContainer.appendChild(savedIframes[s.ID]);
           } else {
-            fetch(`/api/sessions/${s.ID}/ttyd`)
-              .then(r => r.json())
-              .then(({ url }) => {
-                const iframe = document.createElement('iframe');
-                iframe.src = url;
-                iframe.className = 'terminal-iframe';
-                termContainer.appendChild(iframe);
-              })
-              .catch(() => {
-                termContainer.textContent = 'Failed to start terminal';
-              });
+            const iframe = document.createElement('iframe');
+            // Proxied through our server so remote clients (iOS etc.) can reach it.
+            iframe.src = `/terminal/${s.ID}/`;
+            iframe.className = 'terminal-iframe';
+            termContainer.appendChild(iframe);
           }
         }
       }

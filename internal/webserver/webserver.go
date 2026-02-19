@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"sync"
 	"time"
 
@@ -70,8 +72,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/sessions/{id}/restart", s.handleRestartSession)
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.handleDeleteSession)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.handleSessionEvents)
-	mux.HandleFunc("GET /api/sessions/{id}/ttyd", s.handleTTYD)
 	mux.HandleFunc("DELETE /api/sessions/{id}/ttyd", s.handleKillTTYD)
+	mux.HandleFunc("GET /terminal/{id}/", s.handleTerminalProxy)
 	mux.HandleFunc("GET /events", s.handleSSE)
 	mux.Handle("GET /", http.FileServer(staticFiles()))
 	return mux
@@ -228,7 +230,10 @@ func (s *Server) handleRestartSession(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(204)
 }
 
-func (s *Server) handleTTYD(w http.ResponseWriter, r *http.Request) {
+// handleTerminalProxy spawns ttyd on demand and reverse-proxies all traffic
+// (HTTP + WebSocket) through our server so remote clients (e.g. iOS) can reach
+// it without needing direct access to 127.0.0.1:<port>.
+func (s *Server) handleTerminalProxy(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	sess, err := s.store.GetSession(id)
 	if err != nil || sess == nil || sess.TmuxSession == "" {
@@ -237,11 +242,11 @@ func (s *Server) handleTTYD(w http.ResponseWriter, r *http.Request) {
 	}
 	port, err := s.ttyd.spawn(id, sess.TmuxSession)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		http.Error(w, err.Error(), 503)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"url": fmt.Sprintf("http://127.0.0.1:%d", port)})
+	target, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
+	httputil.NewSingleHostReverseProxy(target).ServeHTTP(w, r)
 }
 
 func (s *Server) handleKillTTYD(w http.ResponseWriter, r *http.Request) {
