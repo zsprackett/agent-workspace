@@ -25,12 +25,15 @@ const helpText = `[yellow]Dashboard Keys[-]
 
 [yellow]Inside Session[-]
 
-  [green]Ctrl+D[-]   Detach (return to dashboard)
-  [green]Ctrl+T[-]   Open terminal pane
-  [green]Ctrl+G[-]   Git status
-  [green]Ctrl+F[-]   Git diff
-  [green]Ctrl+P[-]   Open pull request in browser
-  [green]Ctrl+N[-]   View session notes
+  [green]Ctrl+\[-]   Open command menu
+
+  [yellow]Menu keys[-]
+  [green]g[-]         Git status
+  [green]f[-]         Git diff
+  [green]p[-]         Open pull request in browser
+  [green]n[-]         Session notes
+  [green]t[-]         Open terminal split
+  [green]d[-]         Detach to dashboard
 
 Press [green]Escape[-] or [green]?[-] to close.`
 

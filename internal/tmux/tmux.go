@@ -156,26 +156,12 @@ func writeStatsFile(path string, running, waiting, total int) {
 // getStats is called periodically to update the header counts.
 // Blocks until the user detaches.
 func AttachSession(name, title string, getStats func() (running, waiting, total int)) error {
-	// Bind Ctrl+D to detach
-	exec.Command("tmux", "bind-key", "-n", "C-d", "detach-client").Run()
-	// Bind Ctrl+T to open a horizontal split
-	exec.Command("tmux", "bind-key", "-n", "C-t", "split-window", "-v", "-c", "#{pane_current_path}").Run()
-	// Bind Ctrl+G to show git status in a temporary split pane
-	exec.Command("tmux", "bind-key", "-n", "C-g",
-		"split-window", "-v", "-l", "15", "-c", "#{pane_current_path}",
-		`git status; printf '\nPress enter to close...'; read`).Run()
-	// Bind Ctrl+F to show git diff in a scrollable split pane
-	exec.Command("tmux", "bind-key", "-n", "C-f",
-		"split-window", "-v", "-l", "20", "-c", "#{pane_current_path}",
-		`out=$(git diff HEAD --color=always; git ls-files --others --exclude-standard -z | xargs -0 -I{} git diff --no-index --color=always -- /dev/null {} 2>/dev/null); if [ -n "$out" ]; then printf '%s\n' "$out" | less -RX; else printf 'No changes.\n\nPress enter to close...'; read; fi`).Run()
-	// Bind Ctrl+P to open the current branch's GitHub PR in the browser
-	exec.Command("tmux", "bind-key", "-n", "C-p", "run-shell",
-		`cd '#{pane_current_path}' && url=$(gh pr view --json url --jq .url 2>/dev/null) && [ -n "$url" ] && { open "$url" 2>/dev/null || xdg-open "$url" 2>/dev/null; tmux display-message "Opening PR: $url"; } || tmux display-message "No open PR found for this branch"`).Run()
-	// Bind Ctrl+N to open a notes popup using the agent-workspace notes subcommand
+	// Bind single leader key (Ctrl+\) that opens a command menu popup.
+	// All session actions live behind the leader -- no individual Ctrl combos stolen.
 	if exe, err := os.Executable(); err == nil {
-		exec.Command("tmux", "bind-key", "-n", "C-n",
-			"display-popup", "-E", "-w", "64", "-h", "22",
-			fmt.Sprintf("%q notes %q", exe, name)).Run()
+		exec.Command("tmux", "bind-key", "-n", "C-\\",
+			"display-popup", "-E", "-w", "44", "-h", "18",
+			fmt.Sprintf("%q menu %q #{pane_current_path}", exe, name)).Run()
 	}
 
 	// Write initial stats to temp file. The status bar's #(cat file) is re-run on
@@ -196,14 +182,8 @@ func AttachSession(name, title string, getStats func() (running, waiting, total 
 	exec.Command("tmux", "set-window-option", "-t", name, "window-status-format", "").Run()
 	exec.Command("tmux", "set-window-option", "-t", name, "window-status-current-format", "").Run()
 
-	// Shortcuts in pane border at bottom (static text, no refresh needed)
-	shortcuts := "#[bg=#1e1e2e] " +
-		"#[fg=#89b4fa]Ctrl+G#[fg=#6c7086] status  " +
-		"#[fg=#89b4fa]Ctrl+F#[fg=#6c7086] diff  " +
-		"#[fg=#89b4fa]Ctrl+P#[fg=#6c7086] PR  " +
-		"#[fg=#89b4fa]Ctrl+N#[fg=#6c7086] notes  " +
-		"#[fg=#89b4fa]Ctrl+T#[fg=#6c7086] terminal  " +
-		"#[fg=#89b4fa]Ctrl+D#[fg=#6c7086] detach"
+	// Shortcuts in pane border at bottom
+	shortcuts := "#[bg=#1e1e2e]  #[fg=#89b4fa]Ctrl+\\#[fg=#6c7086] open menu"
 	exec.Command("tmux", "set-window-option", "-t", name, "pane-border-status", "bottom").Run()
 	exec.Command("tmux", "set-window-option", "-t", name, "pane-border-style", "bg=#1e1e2e,fg=#6c7086").Run()
 	exec.Command("tmux", "set-window-option", "-t", name, "pane-active-border-style", "bg=#1e1e2e,fg=#6c7086").Run()
@@ -238,13 +218,8 @@ func AttachSession(name, title string, getStats func() (running, waiting, total 
 	err := cmd.Run()
 	close(done)
 
-	// Unbind session keys
-	exec.Command("tmux", "unbind-key", "-n", "C-d").Run()
-	exec.Command("tmux", "unbind-key", "-n", "C-t").Run()
-	exec.Command("tmux", "unbind-key", "-n", "C-g").Run()
-	exec.Command("tmux", "unbind-key", "-n", "C-f").Run()
-	exec.Command("tmux", "unbind-key", "-n", "C-p").Run()
-	exec.Command("tmux", "unbind-key", "-n", "C-n").Run()
+	// Unbind leader key
+	exec.Command("tmux", "unbind-key", "-n", "C-\\").Run()
 	exec.Command("tmux", "set-option", "-t", name, "mouse", "off").Run()
 	exec.Command("tmux", "set-window-option", "-t", name, "pane-border-status", "off").Run()
 	exec.Command("tmux", "set-window-option", "-u", "-t", name, "window-status-format").Run()

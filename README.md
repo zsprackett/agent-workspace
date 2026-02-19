@@ -54,14 +54,16 @@ The TUI opens with a dual-column layout: session list on the left, session previ
 
 ### In-session shortcuts (while attached)
 
+Press `Ctrl+\` to open the command menu. A floating legend appears -- press the highlighted key to run the action or `Esc` to cancel.
+
 | Key | Action |
 |-----|--------|
-| `Ctrl+G` | Git status |
-| `Ctrl+F` | Git diff |
-| `Ctrl+P` | Open GitHub PR in browser |
-| `Ctrl+N` | View / edit session notes |
-| `Ctrl+T` | Open terminal split |
-| `Ctrl+D` | Detach (return to dashboard) |
+| `g` | Git status |
+| `f` | Git diff |
+| `p` | Open GitHub PR in browser |
+| `n` | View / edit session notes |
+| `t` | Open terminal split |
+| `d` | Detach to dashboard |
 
 Mouse mode is enabled while attached: scroll wheel navigates history, click-drag selects text. Hold `Option`/`Alt` to bypass tmux mouse handling for terminal-level copy.
 
