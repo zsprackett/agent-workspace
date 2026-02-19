@@ -143,11 +143,11 @@ func IsSessionActive(name string, sessions []SessionInfo, thresholdSecs int64) b
 	return false
 }
 
-func writeStatsFile(path string, running, waiting, total int) {
+func writeStatsFile(path, title string, running, waiting, total int) {
 	content := fmt.Sprintf(
-		"#[fg=#89b4fa,bold] AGENT WORKSPACE #[fg=#6c7086,nobold]  "+
+		"#[fg=#89b4fa,bold] AGENT WORKSPACE #[fg=#cdd6f4,nobold] %s #[fg=#6c7086]| "+
 			"#[fg=#a6e3a1]● %d running  #[fg=#f9e2af]◐ %d waiting  #[fg=#cdd6f4]%d total",
-		running, waiting, total)
+		title, running, waiting, total)
 	os.WriteFile(path, []byte(content), 0600)
 }
 
@@ -170,7 +170,7 @@ func AttachSession(name, title string, getStats func() (running, waiting, total 
 	// every status-interval tick, giving live updates in the top header bar.
 	statsFile := fmt.Sprintf("%s/agws-%s.txt", os.TempDir(), name)
 	r, w, t := getStats()
-	writeStatsFile(statsFile, r, w, t)
+	writeStatsFile(statsFile, title, r, w, t)
 
 	// Header bar at top - status bar with #(cat file) live-updates on status-interval
 	exec.Command("tmux", "set-option", "-t", name, "status", "on").Run()
@@ -203,7 +203,7 @@ func AttachSession(name, title string, getStats func() (running, waiting, total 
 			select {
 			case <-ticker.C:
 				r, w, t := getStats()
-				writeStatsFile(statsFile, r, w, t)
+				writeStatsFile(statsFile, title, r, w, t)
 			case <-done:
 				return
 			}
