@@ -178,10 +178,24 @@ func (a *App) onNew(groupPath string) {
 					createSession()
 					return
 				}
-				msg := fmt.Sprintf("Pre-launch command failed:\n\n%s\n\nContinue anyway?", out)
-				if len(msg) > 300 {
-					msg = msg[:300] + "..."
+				// Log full details to a file for debugging.
+				logPath := filepath.Join(filepath.Dir(a.cfg.ReposDir), "prelaunch.log")
+				if f, ferr := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); ferr == nil {
+					fmt.Fprintf(f, "command: %s %s\nerror: %v\noutput:\n%s\n---\n",
+						groupPreLaunchCommand, strings.Join(cmdArgs, " "), err, out)
+					f.Close()
 				}
+				snippet := strings.TrimSpace(out)
+				if len(snippet) > 200 {
+					snippet = snippet[:200] + "..."
+				}
+				if snippet == "" {
+					snippet = "(no output)"
+				}
+				msg := fmt.Sprintf(
+					"Pre-launch command failed:\n  %s\n\nError: %v\n\nOutput:\n%s\n\nFull log: %s\n\nContinue anyway?",
+					groupPreLaunchCommand, err, snippet, logPath,
+				)
 				modal := tview.NewModal().
 					SetText(msg).
 					AddButtons([]string{"Continue", "Cancel"}).
