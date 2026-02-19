@@ -14,6 +14,13 @@ type WorktreeConfig struct {
 type NotificationsConfig struct {
 	Enabled bool   `json:"enabled"`
 	Webhook string `json:"webhook"`
+	NtfyURL string `json:"ntfy"`
+}
+
+type WebserverConfig struct {
+	Enabled bool   `json:"enabled"`
+	Port    int    `json:"port"`
+	Host    string `json:"host"`
 }
 
 type Config struct {
@@ -23,6 +30,7 @@ type Config struct {
 	ReposDir      string              `json:"reposDir"`
 	WorktreesDir  string              `json:"worktreesDir"`
 	Notifications NotificationsConfig `json:"notifications"`
+	Webserver     WebserverConfig     `json:"webserver"`
 }
 
 func Defaults() Config {
@@ -33,6 +41,11 @@ func Defaults() Config {
 		Worktree:     WorktreeConfig{DefaultBaseBranch: "main"},
 		ReposDir:     filepath.Join(home, ".agent-workspace", "repos"),
 		WorktreesDir: filepath.Join(home, ".agent-workspace", "worktrees"),
+		Webserver: WebserverConfig{
+			Enabled: true,
+			Port:    8080,
+			Host:    "0.0.0.0",
+		},
 	}
 }
 
