@@ -312,7 +312,7 @@ func (a *App) onRestart(item listItem) {
 
 func (a *App) onEdit(item listItem) {
 	if item.isGroup {
-		form := dialogs.GroupDialog("Edit Group", item.group.Name, item.group.RepoURL,
+		form := dialogs.GroupDialog("Edit Group", item.group.Name, item.group.RepoURL, string(item.group.DefaultTool),
 			func(result dialogs.GroupResult) {
 				a.closeDialog("edit")
 				groups, _ := a.store.LoadGroups()
@@ -320,13 +320,14 @@ func (a *App) onEdit(item listItem) {
 					if g.Path == item.group.Path {
 						g.Name = result.Name
 						g.RepoURL = result.RepoURL
+						g.DefaultTool = db.Tool(result.DefaultTool)
 					}
 				}
 				a.store.SaveGroups(groups)
 				a.store.Touch()
 				a.refreshHome()
 			}, func() { a.closeDialog("edit") })
-		a.showDialog("edit", form, 65, 12)
+		a.showDialog("edit", form, 65, 14)
 	} else if item.session != nil {
 		groups, _ := a.store.LoadGroups()
 		form := dialogs.EditSessionDialog(item.session, groups,
@@ -348,22 +349,23 @@ func (a *App) onEdit(item listItem) {
 }
 
 func (a *App) onNewGroup() {
-	form := dialogs.GroupDialog("New Group", "", "", func(result dialogs.GroupResult) {
+	form := dialogs.GroupDialog("New Group", "", "", "", func(result dialogs.GroupResult) {
 		a.closeDialog("new-group")
 		path := strings.ToLower(strings.ReplaceAll(result.Name, " ", "-"))
 		groups, _ := a.store.LoadGroups()
 		groups = append(groups, &db.Group{
-			Path:      path,
-			Name:      result.Name,
-			Expanded:  true,
-			SortOrder: len(groups),
-			RepoURL:   result.RepoURL,
+			Path:        path,
+			Name:        result.Name,
+			Expanded:    true,
+			SortOrder:   len(groups),
+			RepoURL:     result.RepoURL,
+			DefaultTool: db.Tool(result.DefaultTool),
 		})
 		a.store.SaveGroups(groups)
 		a.store.Touch()
 		a.refreshHome()
 	}, func() { a.closeDialog("new-group") })
-	a.showDialog("new-group", form, 65, 12)
+	a.showDialog("new-group", form, 65, 14)
 }
 
 func (a *App) onNotes(item listItem) {
