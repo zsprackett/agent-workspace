@@ -18,6 +18,7 @@ import (
 	"github.com/zsprackett/agent-workspace/internal/session"
 	"github.com/zsprackett/agent-workspace/internal/tmux"
 	"github.com/zsprackett/agent-workspace/internal/ui/dialogs"
+	"github.com/zsprackett/agent-workspace/internal/webserver"
 )
 
 type App struct {
@@ -30,6 +31,7 @@ type App struct {
 	syn    *syncer.Syncer
 	cfg    config.Config
 	groups []*db.Group
+	web    *webserver.Server
 }
 
 func NewApp(store *db.DB, cfg config.Config) *App {
@@ -46,12 +48,20 @@ func NewApp(store *db.DB, cfg config.Config) *App {
 	notifier := notify.New(notify.Config{
 		Enabled: cfg.Notifications.Enabled,
 		Webhook: cfg.Notifications.Webhook,
+		NtfyURL: cfg.Notifications.NtfyURL,
 	})
+
+	a.web = webserver.New(store, webserver.Config{
+		Enabled: cfg.Webserver.Enabled,
+		Port:    cfg.Webserver.Port,
+		Host:    cfg.Webserver.Host,
+	})
+
 	a.mon = monitor.New(store, func() {
 		a.tapp.QueueUpdateDraw(func() {
 			a.refreshHome()
 		})
-	}, notifier, nil)
+	}, notifier, a.web)
 
 	a.syn = syncer.New(store, cfg.ReposDir)
 
@@ -91,6 +101,10 @@ func (a *App) Run() error {
 			Expanded: true,
 		}}
 		a.store.SaveGroups(groups)
+	}
+
+	if err := a.web.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: webserver: %v\n", err)
 	}
 
 	a.refreshHome()
