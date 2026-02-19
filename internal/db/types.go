@@ -72,6 +72,7 @@ type Group struct {
 	SortOrder   int
 	DefaultPath string
 	RepoURL     string
+	DefaultTool Tool
 }
 
 type StatusUpdate struct {

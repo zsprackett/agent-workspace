@@ -120,6 +120,35 @@ func TestMetadata(t *testing.T) {
 	}
 }
 
+func TestGroupDefaultToolRoundTrip(t *testing.T) {
+	store, _ := db.Open(":memory:")
+	defer store.Close()
+	store.Migrate()
+
+	groups := []*db.Group{
+		{Path: "ai-work", Name: "AI Work", Expanded: true, SortOrder: 0, DefaultTool: db.ToolOpenCode},
+		{Path: "shell-work", Name: "Shell Work", Expanded: true, SortOrder: 1, DefaultTool: db.ToolShell},
+		{Path: "no-tool", Name: "No Tool", Expanded: true, SortOrder: 2},
+	}
+	if err := store.SaveGroups(groups); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	got, err := store.LoadGroups()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got[0].DefaultTool != db.ToolOpenCode {
+		t.Errorf("DefaultTool[0]: got %q want %q", got[0].DefaultTool, db.ToolOpenCode)
+	}
+	if got[1].DefaultTool != db.ToolShell {
+		t.Errorf("DefaultTool[1]: got %q want %q", got[1].DefaultTool, db.ToolShell)
+	}
+	if got[2].DefaultTool != "" {
+		t.Errorf("DefaultTool[2]: got %q want empty", got[2].DefaultTool)
+	}
+}
+
 func TestRepoURLRoundTrip(t *testing.T) {
 	store, _ := db.Open(":memory:")
 	defer store.Close()

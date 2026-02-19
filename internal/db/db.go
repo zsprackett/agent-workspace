@@ -112,6 +112,13 @@ func (d *DB) Migrate() error {
 		}
 	}
 
+	// Add default_tool column to existing groups tables; ignore "duplicate column" errors.
+	if _, alterErr := d.sql.Exec(`ALTER TABLE groups ADD COLUMN default_tool TEXT NOT NULL DEFAULT ''`); alterErr != nil {
+		if !isDuplicateColumnError(alterErr) {
+			return fmt.Errorf("alter groups add default_tool: %w", alterErr)
+		}
+	}
+
 	return nil
 }
 
@@ -300,8 +307,8 @@ func (d *DB) SaveGroups(groups []*Group) error {
 	}
 	for _, g := range groups {
 		if _, err := tx.Exec(
-			"INSERT INTO groups (path, name, expanded, sort_order, default_path, repo_url) VALUES (?,?,?,?,?,?)",
-			g.Path, g.Name, boolToInt(g.Expanded), g.SortOrder, g.DefaultPath, g.RepoURL,
+			"INSERT INTO groups (path, name, expanded, sort_order, default_path, repo_url, default_tool) VALUES (?,?,?,?,?,?,?)",
+			g.Path, g.Name, boolToInt(g.Expanded), g.SortOrder, g.DefaultPath, g.RepoURL, string(g.DefaultTool),
 		); err != nil {
 			return err
 		}
@@ -310,7 +317,7 @@ func (d *DB) SaveGroups(groups []*Group) error {
 }
 
 func (d *DB) LoadGroups() ([]*Group, error) {
-	rows, err := d.sql.Query("SELECT path, name, expanded, sort_order, default_path, repo_url FROM groups ORDER BY sort_order")
+	rows, err := d.sql.Query("SELECT path, name, expanded, sort_order, default_path, repo_url, default_tool FROM groups ORDER BY sort_order")
 	if err != nil {
 		return nil, err
 	}
@@ -319,10 +326,12 @@ func (d *DB) LoadGroups() ([]*Group, error) {
 	for rows.Next() {
 		var g Group
 		var expanded int
-		if err := rows.Scan(&g.Path, &g.Name, &expanded, &g.SortOrder, &g.DefaultPath, &g.RepoURL); err != nil {
+		var defaultTool string
+		if err := rows.Scan(&g.Path, &g.Name, &expanded, &g.SortOrder, &g.DefaultPath, &g.RepoURL, &defaultTool); err != nil {
 			return nil, err
 		}
 		g.Expanded = expanded == 1
+		g.DefaultTool = Tool(defaultTool)
 		groups = append(groups, &g)
 	}
 	return groups, rows.Err()
