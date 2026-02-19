@@ -95,6 +95,7 @@ func (m *Manager) Create(opts CreateOptions) (*db.Session, error) {
 	if err := m.db.SaveSession(s); err != nil {
 		return nil, err
 	}
+	_ = m.db.InsertSessionEvent(s.ID, "created", "")
 	m.db.Touch()
 	return s, nil
 }
@@ -110,6 +111,7 @@ func (m *Manager) Delete(id string) error {
 	if s.TmuxSession != "" {
 		tmux.KillSession(s.TmuxSession)
 	}
+	_ = m.db.InsertSessionEvent(id, "deleted", "")
 	if err := m.db.DeleteSession(id); err != nil {
 		return err
 	}
@@ -127,6 +129,7 @@ func (m *Manager) Stop(id string) error {
 	if err := m.db.WriteStatus(id, db.StatusStopped, s.Tool); err != nil {
 		return err
 	}
+	_ = m.db.InsertSessionEvent(id, "stopped", "")
 	return m.db.Touch()
 }
 
@@ -152,6 +155,7 @@ func (m *Manager) Restart(id string) error {
 	if err := m.db.SaveSession(s); err != nil {
 		return err
 	}
+	_ = m.db.InsertSessionEvent(id, "restarted", "")
 	return m.db.Touch()
 }
 
