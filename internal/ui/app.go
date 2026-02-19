@@ -43,7 +43,7 @@ func NewApp(store *db.DB, cfg config.Config) *App {
 
 	a.tapp = tview.NewApplication()
 	a.pages = tview.NewPages()
-	a.home = NewHome(a.tapp)
+	a.home = NewHome(a.tapp, store)
 
 	notifier := notify.New(notify.Config{
 		Enabled: cfg.Notifications.Enabled,
