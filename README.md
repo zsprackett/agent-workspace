@@ -8,8 +8,11 @@ A terminal-based session manager for AI coding tools. Manages multiple Claude, O
 - **Group organization** - Organize sessions into named groups
 - **Git worktree integration** - Automatically creates isolated Git worktrees from a GitHub URL set on a group
 - **Live status monitoring** - Detects running, waiting, idle, error, and stopped states by parsing tmux output
+- **Dirty worktree indicator** - `*` prefix on session rows when the worktree has uncommitted changes
+- **Notifications** - macOS system alert (and optional webhook) when a session transitions to waiting for input
+- **Session notes** - Per-session freeform notes, editable from the dashboard or from within a session
 - **Persistent state** - Stores session metadata in SQLite at `~/.agent-workspace/state.db`
-- **In-session shortcuts** - Keyboard bindings available while attached to a session
+- **In-session shortcuts** - Keyboard bindings and mouse scrolling available while attached to a session
 
 ## Requirements
 
@@ -22,7 +25,7 @@ A terminal-based session manager for AI coding tools. Manages multiple Claude, O
 make install
 ```
 
-This builds and installs the `agent-workspace` binary to `$GOPATH/bin`.
+This builds and installs the `agent-workspace` binary to `~/.local/bin`.
 
 ## Usage
 
@@ -30,22 +33,24 @@ This builds and installs the `agent-workspace` binary to `$GOPATH/bin`.
 agent-workspace
 ```
 
-The TUI opens with a dual-column layout: session list on the left, session details preview on the right.
+The TUI opens with a dual-column layout: session list on the left, session preview on the right.
 
-### Keyboard shortcuts
+### Dashboard shortcuts
 
 | Key | Action |
 |-----|--------|
-| `n` | New session |
-| `d` | Delete session |
+| `n` | New session (on group) / Edit notes (on session) |
+| `d` | Delete session or group |
 | `s` | Stop session |
 | `x` | Restart session |
-| `e` | Edit session |
+| `e` | Edit session or group |
 | `g` | New group |
 | `m` | Move session to group |
+| `1`-`9` | Jump to group |
 | `?` | Help |
 | `q` | Quit |
-| `Enter` | Attach to session |
+| `Enter` / `a` | Attach to session |
+| `←` / `→` | Collapse / expand group |
 
 ### In-session shortcuts (while attached)
 
@@ -53,9 +58,12 @@ The TUI opens with a dual-column layout: session list on the left, session detai
 |-----|--------|
 | `Ctrl+G` | Git status |
 | `Ctrl+F` | Git diff |
-| `Ctrl+P` | GitHub PR view |
-| `Ctrl+T` | Split pane |
-| `Ctrl+D` | Detach |
+| `Ctrl+P` | Open GitHub PR in browser |
+| `Ctrl+N` | View / edit session notes |
+| `Ctrl+T` | Open terminal split |
+| `Ctrl+D` | Detach (return to dashboard) |
+
+Mouse mode is enabled while attached: scroll wheel navigates history, click-drag selects text. Hold `Option`/`Alt` to bypass tmux mouse handling for terminal-level copy.
 
 ## Configuration
 
@@ -63,9 +71,29 @@ Config is loaded from `~/.agent-workspace/config.json`. All fields are optional.
 
 ```json
 {
-  "default_tool": "claude",
-  "default_group": "my-sessions",
-  "worktree_base_branch": "main"
+  "defaultTool": "claude",
+  "defaultGroup": "my-sessions",
+  "worktree": {
+    "defaultBaseBranch": "main"
+  },
+  "notifications": {
+    "enabled": true,
+    "webhook": "https://hooks.slack.com/..."
+  }
+}
+```
+
+### Notifications
+
+When `notifications.enabled` is `true`, a macOS system notification fires whenever a session transitions to the waiting state. Set `notifications.webhook` to receive a JSON POST as well:
+
+```json
+{
+  "session": "swift-fox",
+  "tool": "claude",
+  "group": "my-sessions",
+  "status": "waiting",
+  "timestamp": "2026-02-18T12:00:00Z"
 }
 ```
 
@@ -79,7 +107,15 @@ Set a GitHub URL on a group and new sessions in that group will automatically:
 2. Create an isolated Git worktree under `~/.agent-workspace/worktrees/`
 3. Launch the tool session in that worktree directory
 
+The `*` indicator appears on a session row when the worktree has uncommitted changes. It is updated after each background `git fetch` and whenever you detach from a session.
+
 Worktrees are removed when the session is deleted.
+
+## Session Notes
+
+Press `n` on any session row to open an editable notes modal. Notes persist in SQLite across restarts.
+
+While attached to a session, press `Ctrl+N` to open the same notes editor as a floating popup without detaching.
 
 ## Supported Tools
 
