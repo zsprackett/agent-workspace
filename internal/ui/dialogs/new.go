@@ -41,7 +41,7 @@ func NewSessionDialog(groups []*db.Group, defaultTool string, defaultGroup strin
 	form.SetBackgroundColor(tcell.ColorDefault)
 	form.SetFieldBackgroundColor(tcell.ColorDefault)
 
-	tools := []string{"claude", "opencode", "gemini", "codex", "shell", "custom"}
+	tools := []string{"claude", "opencode", "gemini", "codex", "custom"}
 	initialTool := resolveGroupTool(groups, defaultGroup, defaultTool)
 	defaultToolIdx := 0
 	for i, t := range tools {

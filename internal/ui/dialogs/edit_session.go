@@ -22,7 +22,7 @@ func EditSessionDialog(s *db.Session, groups []*db.Group,
 	form.SetBackgroundColor(tcell.ColorDefault)
 	form.SetFieldBackgroundColor(tcell.ColorDefault)
 
-	tools := []string{"claude", "opencode", "gemini", "codex", "shell", "custom"}
+	tools := []string{"claude", "opencode", "gemini", "codex", "custom"}
 	currentToolIdx := 0
 	for i, t := range tools {
 		if t == string(s.Tool) {
