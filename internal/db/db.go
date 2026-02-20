@@ -323,12 +323,13 @@ func scanSession(row rowScanner) (*Session, error) {
 	var tool, status string
 	var createdAt, lastAccessed int64
 	var ack, hasUncommitted int
+	var notes sql.NullString
 	err := row.Scan(
 		&s.ID, &s.Title, &s.ProjectPath, &s.GroupPath, &s.SortOrder,
 		&s.Command, &tool, &status, &s.TmuxSession,
 		&createdAt, &lastAccessed,
 		&s.ParentSessionID, &s.WorktreePath, &s.WorktreeRepo, &s.WorktreeBranch,
-		&ack, &s.RepoURL, &hasUncommitted, &s.Notes,
+		&ack, &s.RepoURL, &hasUncommitted, &notes,
 	)
 	if err != nil {
 		return nil, err
@@ -339,6 +340,7 @@ func scanSession(row rowScanner) (*Session, error) {
 	s.LastAccessed = time.UnixMilli(lastAccessed)
 	s.Acknowledged = ack == 1
 	s.HasUncommitted = hasUncommitted == 1
+	s.Notes = notes.String
 	return &s, nil
 }
 
