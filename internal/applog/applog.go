@@ -1,9 +1,14 @@
 package applog
 
 import (
+	"fmt"
+	"io"
+	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -87,4 +92,41 @@ func (r *DailyRotator) Close() error {
 		return err
 	}
 	return nil
+}
+
+// InitConfig holds configuration for Init.
+type InitConfig struct {
+	LogDir   string
+	LogLevel string
+}
+
+// Init sets up file-backed structured logging. It redirects both slog.Default
+// and the stdlib log package to a daily-rotating file in cfg.LogDir.
+// The returned io.Closer must be deferred by the caller.
+func Init(cfg InitConfig) (*slog.Logger, io.Closer, error) {
+	if err := os.MkdirAll(cfg.LogDir, 0755); err != nil {
+		return nil, nil, fmt.Errorf("create log dir: %w", err)
+	}
+	rotator := NewDailyRotator(cfg.LogDir, 7)
+	level := ParseLevel(cfg.LogLevel)
+	handler := slog.NewTextHandler(rotator, &slog.HandlerOptions{Level: level})
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
+	log.SetOutput(rotator)
+	log.SetFlags(0)
+	return logger, rotator, nil
+}
+
+// ParseLevel converts a level string to slog.Level. Defaults to LevelInfo.
+func ParseLevel(s string) slog.Level {
+	switch strings.ToLower(s) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }

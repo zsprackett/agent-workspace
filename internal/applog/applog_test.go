@@ -1,8 +1,11 @@
 package applog_test
 
 import (
+	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,3 +77,58 @@ func TestDailyRotator_PrunesOldFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestInit_CreatesLogDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "newlogs")
+	_, closer, err := applog.Init(applog.InitConfig{LogDir: dir, LogLevel: "info"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closer.Close()
+
+	if _, err := os.Stat(dir); err != nil {
+		t.Errorf("expected log dir %q to be created: %v", dir, err)
+	}
+}
+
+func TestInit_ParsesLogLevel(t *testing.T) {
+	cases := []struct {
+		input string
+		level slog.Level
+	}{
+		{"debug", slog.LevelDebug},
+		{"info", slog.LevelInfo},
+		{"warn", slog.LevelWarn},
+		{"error", slog.LevelError},
+		{"", slog.LevelInfo},    // empty defaults to info
+		{"WARN", slog.LevelWarn}, // case insensitive
+	}
+	for _, tc := range cases {
+		got := applog.ParseLevel(tc.input)
+		if got != tc.level {
+			t.Errorf("ParseLevel(%q): got %v want %v", tc.input, got, tc.level)
+		}
+	}
+}
+
+func TestInit_StdlibLogRedirected(t *testing.T) {
+	dir := t.TempDir()
+	_, closer, err := applog.Init(applog.InitConfig{LogDir: dir, LogLevel: "info"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closer.Close()
+
+	log.Print("stdlib-log-test-marker")
+
+	today := time.Now().Format("2006-01-02")
+	name := filepath.Join(dir, "agent-workspace-"+today+".log")
+	data, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "stdlib-log-test-marker") {
+		t.Errorf("stdlib log output not found in log file; file contents: %q", string(data))
+	}
+}
+
