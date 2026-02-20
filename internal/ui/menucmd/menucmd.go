@@ -86,8 +86,12 @@ func openNotes(tmuxSession string) {
 	if err != nil {
 		return
 	}
-	exec.Command("tmux", "display-popup", "-E", "-w", "64", "-h", "22",
-		fmt.Sprintf("%q notes %q", exe, tmuxSession)).Run()
+	// display-popup cannot be opened from within an existing popup.
+	// Use run-shell -b to schedule the notes popup from the tmux server
+	// context after the menu popup closes.
+	notesCmd := fmt.Sprintf("%q notes %q", exe, tmuxSession)
+	popupCmd := fmt.Sprintf("sleep 0.3 && tmux display-popup -E -t %q -w 64 -h 22 %q", tmuxSession, notesCmd)
+	exec.Command("tmux", "run-shell", "-b", popupCmd).Run()
 }
 
 func openTerminal(path string) {
