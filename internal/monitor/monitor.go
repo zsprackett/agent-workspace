@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"encoding/json"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -23,9 +24,10 @@ type Monitor struct {
 	interval      time.Duration
 	stop          chan struct{}
 	wg            sync.WaitGroup
+	logger        *slog.Logger
 }
 
-func New(store *db.DB, onUpdate OnUpdate, notifier *notify.Notifier, broadcaster events.Broadcaster) *Monitor {
+func New(store *db.DB, onUpdate OnUpdate, notifier *notify.Notifier, broadcaster events.Broadcaster, logger *slog.Logger) *Monitor {
 	return &Monitor{
 		db:            store,
 		onUpdate:      onUpdate,
@@ -35,6 +37,7 @@ func New(store *db.DB, onUpdate OnUpdate, notifier *notify.Notifier, broadcaster
 		pendingStatus: make(map[string]db.SessionStatus),
 		interval:      500 * time.Millisecond,
 		stop:          make(chan struct{}),
+		logger:        logger,
 	}
 }
 
@@ -111,6 +114,11 @@ func (m *Monitor) refresh() {
 				// Stable for 2 consecutive ticks - commit the change.
 				prev := m.prevStatus[s.ID]
 				m.db.WriteStatus(s.ID, newStatus, s.Tool)
+				m.logger.Debug("monitor: status changed",
+					"session", s.Title,
+					"from", string(s.Status),
+					"to", string(newStatus),
+				)
 				changed = true
 				detail, _ := json.Marshal(map[string]string{"from": string(s.Status), "to": string(newStatus)})
 				m.db.InsertSessionEvent(s.ID, "status_changed", string(detail))

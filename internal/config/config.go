@@ -48,6 +48,8 @@ type Config struct {
 	WorktreesDir  string              `json:"worktreesDir"`
 	Notifications NotificationsConfig `json:"notifications"`
 	Webserver     WebserverConfig     `json:"webserver"`
+	LogLevel      string              `json:"logLevel"`
+	LogDir        string              `json:"logDir"`
 }
 
 func Defaults() Config {
@@ -63,6 +65,8 @@ func Defaults() Config {
 			Port:    8080,
 			Host:    "0.0.0.0",
 		},
+		LogLevel: "info",
+		LogDir:   filepath.Join(home, ".agent-workspace", "logs"),
 	}
 }
 

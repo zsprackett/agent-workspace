@@ -1,7 +1,7 @@
 package syncer
 
 import (
-	"log"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
@@ -17,21 +17,23 @@ type Syncer struct {
 	stop     chan struct{}
 	wg       sync.WaitGroup
 	fetch    func(repoDir string) error
+	logger   *slog.Logger
 }
 
-func New(store *db.DB, reposDir string) *Syncer {
+func New(store *db.DB, reposDir string, logger *slog.Logger) *Syncer {
 	return &Syncer{
 		db:       store,
 		reposDir: reposDir,
 		interval: 2 * time.Minute,
 		stop:     make(chan struct{}),
 		fetch:    git.FetchBare,
+		logger:   logger,
 	}
 }
 
 // NewWithFetch creates a Syncer with an injectable fetch function. Used in tests.
-func NewWithFetch(store *db.DB, reposDir string, fetch func(repoDir string) error) *Syncer {
-	s := New(store, reposDir)
+func NewWithFetch(store *db.DB, reposDir string, logger *slog.Logger, fetch func(repoDir string) error) *Syncer {
+	s := New(store, reposDir, logger)
 	s.fetch = fetch
 	return s
 }
@@ -81,8 +83,7 @@ func (s *Syncer) refresh() {
 			continue
 		}
 		if err := s.fetch(path); err != nil {
-			// Non-fatal: log to stderr and continue
-			log.Printf("syncer: fetch %s: %v", path, err)
+			s.logger.Warn("syncer: fetch failed", "repo", path, "err", err)
 		}
 		s.updateDirtyStatus(g.Path)
 	}
