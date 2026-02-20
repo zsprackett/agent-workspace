@@ -346,9 +346,30 @@ func (a *App) onStop(item listItem) {
 }
 
 func (a *App) onRestart(item listItem) {
-	if item.session != nil {
-		a.mgr.Restart(item.session.ID)
+	if item.session == nil {
+		return
+	}
+	doRestart := func() {
+		if err := a.mgr.Restart(item.session.ID); err != nil {
+			a.showError(fmt.Sprintf("Restart failed: %v", err))
+			return
+		}
 		a.refreshHome()
+	}
+	switch item.session.Status {
+	case db.StatusStopped, db.StatusError:
+		doRestart()
+	default:
+		modal := tview.NewModal().
+			SetText(fmt.Sprintf("Session '%s' is still running.\n\nRestart it?", item.session.Title)).
+			AddButtons([]string{"Restart", "Cancel"}).
+			SetDoneFunc(func(_ int, label string) {
+				a.closeDialog("confirm-restart")
+				if label == "Restart" {
+					doRestart()
+				}
+			})
+		a.pages.AddPage("confirm-restart", modal, true, true)
 	}
 }
 
