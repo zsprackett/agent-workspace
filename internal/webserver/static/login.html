@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0d1117">
+  <title>agent-workspace – login</title>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    .login-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 80dvh;
+    }
+    .login-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 32px;
+      width: 320px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .login-box h2 { font-size: 1rem; color: var(--text); }
+    .login-box input {
+      width: 100%;
+      padding: 8px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+    }
+    .login-box button {
+      padding: 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .login-box button:hover { border-color: var(--text); }
+    .error { color: var(--error); font-size: 13px; min-height: 1em; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>agent-workspace</h1>
+  </header>
+  <main class="login-wrap">
+    <div class="login-box">
+      <h2>Sign in</h2>
+      <input id="username" type="text" placeholder="Username" autocomplete="username">
+      <input id="password" type="password" placeholder="Password" autocomplete="current-password">
+      <button id="submit">Sign in</button>
+      <div id="error" class="error"></div>
+    </div>
+  </main>
+  <script>
+    async function login() {
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const errEl = document.getElementById('error');
+      errEl.textContent = '';
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      if (!res.ok) {
+        errEl.textContent = res.status === 401 ? 'Invalid username or password.' : 'Login failed.';
+        return;
+      }
+      const { access_token, refresh_token } = await res.json();
+      sessionStorage.setItem('access_token', access_token);
+      localStorage.setItem('refresh_token', refresh_token);
+      window.location.href = '/';
+    }
+
+    document.getElementById('submit').onclick = login;
+    document.getElementById('password').addEventListener('keydown', e => {
+      if (e.key === 'Enter') login();
+    });
+  </script>
+</body>
+</html>
