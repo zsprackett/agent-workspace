@@ -173,15 +173,31 @@ func (a *App) onNew(groupPath string) {
 				Command:   result.Command,
 				GroupPath: result.GroupPath,
 			}
-			// Look up the selected group's repo URL.
+			// Look up the selected group's repo URL and pre-launch command.
 			var groupRepoURL string
+			var preLaunchCmd string
 			for _, g := range groups {
 				if g.Path == result.GroupPath {
 					groupRepoURL = g.RepoURL
+					preLaunchCmd = g.PreLaunchCommand
 					break
 				}
 			}
 			createSession := func() {
+				if preLaunchCmd != "" {
+					toolCmd := db.ToolCommand(opts.Tool, opts.Command)
+					var out string
+					var err error
+					if opts.WorktreeRepo != "" {
+						out, err = session.RunPreLaunchCommand(preLaunchCmd, toolCmd, opts.WorktreeRepo, opts.WorktreePath)
+					} else {
+						out, err = session.RunPreLaunchCommand(preLaunchCmd, toolCmd, opts.ProjectPath)
+					}
+					if err != nil {
+						a.showError(fmt.Sprintf("Pre-launch command failed: %v\n%s", err, out))
+						return
+					}
+				}
 				s, err := a.mgr.Create(opts)
 				if err != nil {
 					a.showError(fmt.Sprintf("Create failed: %v", err))
@@ -338,7 +354,7 @@ func (a *App) onRestart(item listItem) {
 
 func (a *App) onEdit(item listItem) {
 	if item.isGroup {
-		form := dialogs.GroupDialog("Edit Group", item.group.Name, item.group.RepoURL, string(item.group.DefaultTool),
+		form := dialogs.GroupDialog("Edit Group", item.group.Name, item.group.RepoURL, string(item.group.DefaultTool), item.group.PreLaunchCommand,
 			func(result dialogs.GroupResult) {
 				a.closeDialog("edit")
 				groups, _ := a.store.LoadGroups()
@@ -347,6 +363,7 @@ func (a *App) onEdit(item listItem) {
 						g.Name = result.Name
 						g.RepoURL = result.RepoURL
 						g.DefaultTool = db.Tool(result.DefaultTool)
+						g.PreLaunchCommand = result.PreLaunchCommand
 					}
 				}
 				a.store.SaveGroups(groups)
@@ -376,17 +393,18 @@ func (a *App) onEdit(item listItem) {
 }
 
 func (a *App) onNewGroup() {
-	form := dialogs.GroupDialog("New Group", "", "", "", func(result dialogs.GroupResult) {
+	form := dialogs.GroupDialog("New Group", "", "", "", "", func(result dialogs.GroupResult) {
 		a.closeDialog("new-group")
 		path := strings.ToLower(strings.ReplaceAll(result.Name, " ", "-"))
 		groups, _ := a.store.LoadGroups()
 		groups = append(groups, &db.Group{
-			Path:        path,
-			Name:        result.Name,
-			Expanded:    true,
-			SortOrder:   len(groups),
-			RepoURL:     result.RepoURL,
-			DefaultTool: db.Tool(result.DefaultTool),
+			Path:             path,
+			Name:             result.Name,
+			Expanded:         true,
+			SortOrder:        len(groups),
+			RepoURL:          result.RepoURL,
+			DefaultTool:      db.Tool(result.DefaultTool),
+			PreLaunchCommand: result.PreLaunchCommand,
 		})
 		a.store.SaveGroups(groups)
 		a.store.Touch()

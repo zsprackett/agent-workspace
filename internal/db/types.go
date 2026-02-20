@@ -66,13 +66,14 @@ type Session struct {
 }
 
 type Group struct {
-	Path        string
-	Name        string
-	Expanded    bool
-	SortOrder   int
-	DefaultPath string
-	RepoURL     string
-	DefaultTool Tool
+	Path             string
+	Name             string
+	Expanded         bool
+	SortOrder        int
+	DefaultPath      string
+	RepoURL          string
+	DefaultTool      Tool
+	PreLaunchCommand string
 }
 
 type Account struct {
