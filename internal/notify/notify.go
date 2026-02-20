@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os/exec"
 	"time"
@@ -20,12 +21,13 @@ type Config struct {
 
 // Notifier fires system notifications and optional webhook POSTs.
 type Notifier struct {
-	cfg Config
+	cfg    Config
+	logger *slog.Logger
 }
 
 // New returns a Notifier with the given config.
-func New(cfg Config) *Notifier {
-	return &Notifier{cfg: cfg}
+func New(cfg Config, logger *slog.Logger) *Notifier {
+	return &Notifier{cfg: cfg, logger: logger}
 }
 
 // Notify sends a system notification and optional webhook POST for a session
@@ -75,7 +77,12 @@ func (n *Notifier) sendWebhook(s db.Session) {
 		return
 	}
 	client := &http.Client{Timeout: 5 * time.Second}
-	client.Post(n.cfg.Webhook, "application/json", bytes.NewReader(data))
+	resp, err := client.Post(n.cfg.Webhook, "application/json", bytes.NewReader(data))
+	if err != nil {
+		n.logger.Warn("notify: webhook POST failed", "err", err)
+		return
+	}
+	resp.Body.Close()
 }
 
 type ntfyPayload struct {
