@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -26,8 +28,8 @@ type TLSConfig struct {
 }
 
 type AuthConfig struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	JWTSecret       string `json:"jwtSecret"`
+	RefreshTokenTTL string `json:"refreshTokenTTL"` // e.g. "168h", defaults to 7 days
 }
 
 type WebserverConfig struct {
@@ -82,6 +84,24 @@ func DefaultPath() string {
 func DBPath() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".agent-workspace", "state.db")
+}
+
+// EnsureJWTSecret generates and saves a JWT secret if one is not already set.
+// It writes the updated config back to path.
+func EnsureJWTSecret(path string, cfg *Config) error {
+	if cfg.Webserver.Auth.JWTSecret != "" {
+		return nil
+	}
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return err
+	}
+	cfg.Webserver.Auth.JWTSecret = hex.EncodeToString(b)
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0600)
 }
 
 func Load(path string) (Config, error) {

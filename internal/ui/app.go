@@ -63,8 +63,8 @@ func NewApp(store *db.DB, cfg config.Config) *App {
 			CacheDir: cfg.Webserver.TLS.CacheDir,
 		},
 		Auth: webserver.AuthConfig{
-			Username: cfg.Webserver.Auth.Username,
-			Password: cfg.Webserver.Auth.Password,
+			JWTSecret:       cfg.Webserver.Auth.JWTSecret,
+			RefreshTokenTTL: cfg.Webserver.Auth.RefreshTokenTTL,
 		},
 	})
 

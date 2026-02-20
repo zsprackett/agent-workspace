@@ -27,8 +27,8 @@ type TLSConfig struct {
 }
 
 type AuthConfig struct {
-	Username string
-	Password string
+	JWTSecret       string
+	RefreshTokenTTL string // parsed duration, e.g. "168h"
 }
 
 type Config struct {
@@ -99,17 +99,6 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
-func basicAuthMiddleware(username, password string, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		u, p, ok := r.BasicAuth()
-		if !ok || u != username || p != password {
-			w.Header().Set("WWW-Authenticate", `Basic realm="agent-workspace"`)
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
 
 func (s *Server) tlsCacheDir() string {
 	if s.cfg.TLS.CacheDir != "" {
@@ -125,19 +114,6 @@ func (s *Server) Start() error {
 	}
 
 	handler := s.Handler()
-	if s.cfg.Auth.Username != "" {
-		// Wrap everything except /cert so the cert can be downloaded before
-		// the browser has trusted it (chicken-and-egg with Basic Auth over TLS).
-		muxHandler := handler
-		authed := basicAuthMiddleware(s.cfg.Auth.Username, s.cfg.Auth.Password, handler)
-		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/cert" {
-				muxHandler.ServeHTTP(w, r)
-			} else {
-				authed.ServeHTTP(w, r)
-			}
-		})
-	}
 
 	addr := fmt.Sprintf("%s:%d", s.cfg.Host, s.cfg.Port)
 	srv := &http.Server{Addr: addr, Handler: handler}
