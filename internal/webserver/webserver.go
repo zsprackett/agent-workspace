@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/acme/autocert"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/zsprackett/agent-workspace/internal/db"
 	"github.com/zsprackett/agent-workspace/internal/events"
@@ -85,6 +86,9 @@ func (s *Server) removeClient(ch chan events.Event) {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /cert", s.handleCert)
+	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
+	mux.HandleFunc("POST /api/auth/refresh", s.handleRefresh)
+	mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/sessions", s.handleSessions)
 	mux.HandleFunc("POST /api/sessions", s.handleCreateSession)
 	mux.HandleFunc("POST /api/sessions/{id}/notes", s.handleUpdateNotes)
@@ -162,6 +166,90 @@ func (s *Server) Start() error {
 	}
 
 	return nil
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", 400)
+		return
+	}
+	acc, err := s.store.GetAccountByUsername(body.Username)
+	if err != nil || bcrypt.CompareHashAndPassword([]byte(acc.PasswordHash), []byte(body.Password)) != nil {
+		http.Error(w, "unauthorized", 401)
+		return
+	}
+	ttl, err := time.ParseDuration(s.cfg.Auth.RefreshTokenTTL)
+	if err != nil || ttl == 0 {
+		ttl = 7 * 24 * time.Hour
+	}
+	accessToken, err := IssueAccessToken(s.cfg.Auth.JWTSecret, acc.Username, time.Hour)
+	if err != nil {
+		http.Error(w, "internal error", 500)
+		return
+	}
+	refreshToken, err := GenerateRefreshToken()
+	if err != nil {
+		http.Error(w, "internal error", 500)
+		return
+	}
+	if err := s.store.CreateRefreshToken(refreshToken, acc.ID, time.Now().Add(ttl)); err != nil {
+		http.Error(w, "internal error", 500)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+	})
+}
+
+func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", 400)
+		return
+	}
+	rt, err := s.store.GetRefreshToken(body.RefreshToken)
+	if err != nil || time.Now().After(rt.ExpiresAt) {
+		http.Error(w, "unauthorized", 401)
+		return
+	}
+	acc, err := s.store.GetAccountByID(rt.AccountID)
+	if err != nil {
+		http.Error(w, "unauthorized", 401)
+		return
+	}
+	// Rotate: delete old, issue new
+	s.store.DeleteRefreshToken(body.RefreshToken)
+
+	ttl, err := time.ParseDuration(s.cfg.Auth.RefreshTokenTTL)
+	if err != nil || ttl == 0 {
+		ttl = 7 * 24 * time.Hour
+	}
+	accessToken, _ := IssueAccessToken(s.cfg.Auth.JWTSecret, acc.Username, time.Hour)
+	newRefreshToken, _ := GenerateRefreshToken()
+	s.store.CreateRefreshToken(newRefreshToken, acc.ID, time.Now().Add(ttl))
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"access_token":  accessToken,
+		"refresh_token": newRefreshToken,
+	})
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	s.store.DeleteRefreshToken(body.RefreshToken)
+	w.WriteHeader(204)
 }
 
 type sessionsResponse struct {
