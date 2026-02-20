@@ -3,6 +3,7 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,8 +15,8 @@ import (
 	"github.com/zsprackett/agent-workspace/internal/git"
 	"github.com/zsprackett/agent-workspace/internal/monitor"
 	"github.com/zsprackett/agent-workspace/internal/notify"
-	"github.com/zsprackett/agent-workspace/internal/syncer"
 	"github.com/zsprackett/agent-workspace/internal/session"
+	"github.com/zsprackett/agent-workspace/internal/syncer"
 	"github.com/zsprackett/agent-workspace/internal/tmux"
 	"github.com/zsprackett/agent-workspace/internal/ui/dialogs"
 	"github.com/zsprackett/agent-workspace/internal/webserver"
@@ -32,13 +33,15 @@ type App struct {
 	cfg    config.Config
 	groups []*db.Group
 	web    *webserver.Server
+	logger *slog.Logger
 }
 
-func NewApp(store *db.DB, cfg config.Config) *App {
+func NewApp(store *db.DB, cfg config.Config, logger *slog.Logger) *App {
 	a := &App{
-		store: store,
-		cfg:   cfg,
-		mgr:   session.NewManager(store),
+		store:  store,
+		cfg:    cfg,
+		mgr:    session.NewManager(store),
+		logger: logger,
 	}
 
 	a.tapp = tview.NewApplication()
@@ -49,7 +52,7 @@ func NewApp(store *db.DB, cfg config.Config) *App {
 		Enabled: cfg.Notifications.Enabled,
 		Webhook: cfg.Notifications.Webhook,
 		NtfyURL: cfg.Notifications.NtfyURL,
-	})
+	}, logger)
 
 	a.web = webserver.New(store, a.mgr, webserver.Config{
 		Enabled: cfg.Webserver.Enabled,
@@ -72,9 +75,9 @@ func NewApp(store *db.DB, cfg config.Config) *App {
 		a.tapp.QueueUpdateDraw(func() {
 			a.refreshHome()
 		})
-	}, notifier, a.web)
+	}, notifier, a.web, logger)
 
-	a.syn = syncer.New(store, cfg.ReposDir)
+	a.syn = syncer.New(store, cfg.ReposDir, logger)
 
 	a.pages.AddPage("home", a.home, true, true)
 	a.tapp.SetRoot(a.pages, true).EnableMouse(false)
