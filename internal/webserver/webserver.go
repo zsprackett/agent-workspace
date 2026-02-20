@@ -99,8 +99,20 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/sessions/{id}/ttyd", s.handleKillTTYD)
 	mux.HandleFunc("GET /terminal/{id}/", s.handleTerminalProxy)
 	mux.HandleFunc("GET /events", s.handleSSE)
+	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFileFS(w, r, staticFS, "static/login.html")
+	})
 	mux.Handle("GET /", http.FileServer(staticFiles()))
-	return mux
+
+	if s.cfg.Auth.JWTSecret == "" {
+		return mux
+	}
+	has, _ := s.store.HasAnyAccount()
+	if !has {
+		return mux
+	}
+	publicPaths := []string{"/cert", "/api/auth/", "/login"}
+	return jwtMiddleware(s.cfg.Auth.JWTSecret, publicPaths, mux)
 }
 
 

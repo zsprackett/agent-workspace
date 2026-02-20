@@ -126,6 +126,39 @@ func TestLogoutEndpoint(t *testing.T) {
 	}
 }
 
+func TestProtectedEndpointRequiresAuth(t *testing.T) {
+	srv, _ := newAuthServer(t)
+	req := httptest.NewRequest("GET", "/api/sessions", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != 401 {
+		t.Fatalf("expected 401 without auth, got %d", w.Code)
+	}
+}
+
+func TestProtectedEndpointWithValidToken(t *testing.T) {
+	srv, _ := newAuthServer(t)
+	token, _ := webserver.IssueAccessToken("test-secret", "alice", time.Hour)
+	req := httptest.NewRequest("GET", "/api/sessions", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("expected 200 with valid token, got %d", w.Code)
+	}
+}
+
+func TestCertEndpointRemainsPublic(t *testing.T) {
+	srv, _ := newAuthServer(t)
+	req := httptest.NewRequest("GET", "/cert", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	// 404 is fine (no self-signed TLS configured) -- just not 401
+	if w.Code == 401 {
+		t.Fatal("expected /cert to be public, got 401")
+	}
+}
+
 func TestSessionsEndpoint(t *testing.T) {
 	store, _ := db.Open(":memory:")
 	store.Migrate()
