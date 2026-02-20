@@ -49,11 +49,48 @@ func TestLoadNtfyURL(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
 	os.WriteFile(path, []byte(`{"notifications":{"ntfy":"http://localhost:8088/aw"}}`), 0600)
+
 	cfg, err := config.Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.Notifications.NtfyURL != "http://localhost:8088/aw" {
 		t.Errorf("expected ntfy URL, got %q", cfg.Notifications.NtfyURL)
+	}
+}
+
+func TestDefaultLogLevel(t *testing.T) {
+	cfg, err := config.Load("/nonexistent/path/config.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LogLevel != "info" {
+		t.Errorf("default log level: got %q want info", cfg.LogLevel)
+	}
+}
+
+func TestDefaultLogDir(t *testing.T) {
+	cfg, err := config.Load("/nonexistent/path/config.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, _ := os.UserHomeDir()
+	want := filepath.Join(home, ".agent-workspace", "logs")
+	if cfg.LogDir != want {
+		t.Errorf("default log dir: got %q want %q", cfg.LogDir, want)
+	}
+}
+
+func TestLogLevelOverride(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	os.WriteFile(path, []byte(`{"logLevel":"debug"}`), 0644)
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LogLevel != "debug" {
+		t.Errorf("got %q want debug", cfg.LogLevel)
 	}
 }
