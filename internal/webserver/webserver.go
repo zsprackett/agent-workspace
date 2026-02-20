@@ -111,8 +111,7 @@ func (s *Server) Handler() http.Handler {
 	if !has {
 		return mux
 	}
-	publicPaths := []string{"/cert", "/api/auth/", "/login"}
-	return jwtMiddleware(s.cfg.Auth.JWTSecret, publicPaths, mux)
+	return jwtMiddleware(s.cfg.Auth.JWTSecret, mux)
 }
 
 
