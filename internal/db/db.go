@@ -1,7 +1,9 @@
 package db
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -134,6 +136,30 @@ func (d *DB) Migrate() error {
 
 	if _, alterErr := d.sql.Exec(`CREATE INDEX IF NOT EXISTS idx_session_events_session_id ON session_events(session_id, ts DESC)`); alterErr != nil {
 		return fmt.Errorf("index session_events: %w", alterErr)
+	}
+
+	_, err = d.sql.Exec(`
+		CREATE TABLE IF NOT EXISTS accounts (
+			id            TEXT PRIMARY KEY,
+			username      TEXT NOT NULL UNIQUE,
+			password_hash TEXT NOT NULL,
+			created_at    INTEGER NOT NULL
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("create accounts: %w", err)
+	}
+
+	_, err = d.sql.Exec(`
+		CREATE TABLE IF NOT EXISTS refresh_tokens (
+			token      TEXT PRIMARY KEY,
+			account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			expires_at INTEGER NOT NULL,
+			created_at INTEGER NOT NULL
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("create refresh_tokens: %w", err)
 	}
 
 	return nil
@@ -385,6 +411,92 @@ func (d *DB) LastModified() int64 {
 	var ts int64
 	fmt.Sscanf(v, "%d", &ts)
 	return ts
+}
+
+func randomID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+func (d *DB) CreateAccount(username, passwordHash string) (*Account, error) {
+	acc := &Account{
+		ID:           randomID(),
+		Username:     username,
+		PasswordHash: passwordHash,
+		CreatedAt:    time.Now(),
+	}
+	_, err := d.sql.Exec(
+		`INSERT INTO accounts (id, username, password_hash, created_at) VALUES (?,?,?,?)`,
+		acc.ID, acc.Username, acc.PasswordHash, acc.CreatedAt.UnixMilli(),
+	)
+	return acc, err
+}
+
+func (d *DB) GetAccountByUsername(username string) (*Account, error) {
+	row := d.sql.QueryRow(
+		`SELECT id, username, password_hash, created_at FROM accounts WHERE username = ?`, username)
+	var acc Account
+	var createdAt int64
+	if err := row.Scan(&acc.ID, &acc.Username, &acc.PasswordHash, &createdAt); err != nil {
+		return nil, err
+	}
+	acc.CreatedAt = time.UnixMilli(createdAt)
+	return &acc, nil
+}
+
+func (d *DB) GetAccountByID(id string) (*Account, error) {
+	row := d.sql.QueryRow(
+		`SELECT id, username, password_hash, created_at FROM accounts WHERE id = ?`, id)
+	var acc Account
+	var createdAt int64
+	if err := row.Scan(&acc.ID, &acc.Username, &acc.PasswordHash, &createdAt); err != nil {
+		return nil, err
+	}
+	acc.CreatedAt = time.UnixMilli(createdAt)
+	return &acc, nil
+}
+
+func (d *DB) UpdateAccountPassword(id, passwordHash string) error {
+	_, err := d.sql.Exec(`UPDATE accounts SET password_hash = ? WHERE id = ?`, passwordHash, id)
+	return err
+}
+
+func (d *DB) HasAnyAccount() (bool, error) {
+	var count int
+	err := d.sql.QueryRow(`SELECT COUNT(*) FROM accounts`).Scan(&count)
+	return count > 0, err
+}
+
+func (d *DB) CreateRefreshToken(token, accountID string, expiresAt time.Time) error {
+	_, err := d.sql.Exec(
+		`INSERT INTO refresh_tokens (token, account_id, expires_at, created_at) VALUES (?,?,?,?)`,
+		token, accountID, expiresAt.UnixMilli(), time.Now().UnixMilli(),
+	)
+	return err
+}
+
+func (d *DB) GetRefreshToken(token string) (*RefreshToken, error) {
+	row := d.sql.QueryRow(
+		`SELECT token, account_id, expires_at, created_at FROM refresh_tokens WHERE token = ?`, token)
+	var rt RefreshToken
+	var expiresAt, createdAt int64
+	if err := row.Scan(&rt.Token, &rt.AccountID, &expiresAt, &createdAt); err != nil {
+		return nil, err
+	}
+	rt.ExpiresAt = time.UnixMilli(expiresAt)
+	rt.CreatedAt = time.UnixMilli(createdAt)
+	return &rt, nil
+}
+
+func (d *DB) DeleteRefreshToken(token string) error {
+	_, err := d.sql.Exec(`DELETE FROM refresh_tokens WHERE token = ?`, token)
+	return err
+}
+
+func (d *DB) DeleteRefreshTokensByAccount(accountID string) error {
+	_, err := d.sql.Exec(`DELETE FROM refresh_tokens WHERE account_id = ?`, accountID)
+	return err
 }
 
 func (d *DB) IsEmpty() (bool, error) {

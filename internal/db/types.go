@@ -75,6 +75,20 @@ type Group struct {
 	DefaultTool Tool
 }
 
+type Account struct {
+	ID           string
+	Username     string
+	PasswordHash string
+	CreatedAt    time.Time
+}
+
+type RefreshToken struct {
+	Token     string
+	AccountID string
+	ExpiresAt time.Time
+	CreatedAt time.Time
+}
+
 type StatusUpdate struct {
 	SessionID    string
 	Status       SessionStatus
