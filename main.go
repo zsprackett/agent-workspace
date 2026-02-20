@@ -2,12 +2,14 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/term"
 
+	"github.com/zsprackett/agent-workspace/internal/applog"
 	"github.com/zsprackett/agent-workspace/internal/config"
 	"github.com/zsprackett/agent-workspace/internal/db"
 	"github.com/zsprackett/agent-workspace/internal/tmux"
@@ -127,6 +129,17 @@ func main() {
 		fmt.Fprintf(os.Stderr, "warning: could not persist JWT secret: %v\n", err)
 	}
 
+	logger, logCloser, err := applog.Init(applog.InitConfig{
+		LogDir:   cfg.LogDir,
+		LogLevel: cfg.LogLevel,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not init log file: %v\n", err)
+		logger = slog.Default() // falls back to default (stderr)
+	} else {
+		defer logCloser.Close()
+	}
+
 	dbPath := config.DBPath()
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
 		fmt.Fprintf(os.Stderr, "error: could not create data directory: %v\n", err)
@@ -145,7 +158,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	app := ui.NewApp(store, cfg)
+	app := ui.NewApp(store, cfg, logger)
 	if err := app.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
