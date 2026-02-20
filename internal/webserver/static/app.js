@@ -1,3 +1,56 @@
+// --- Auth ---
+function getAccessToken() { return sessionStorage.getItem('access_token'); }
+function getRefreshToken() { return localStorage.getItem('refresh_token'); }
+function setTokens(access, refresh) {
+  sessionStorage.setItem('access_token', access);
+  localStorage.setItem('refresh_token', refresh);
+}
+function clearTokens() {
+  sessionStorage.removeItem('access_token');
+  localStorage.removeItem('refresh_token');
+}
+
+async function refreshAccessToken() {
+  const rt = getRefreshToken();
+  if (!rt) return false;
+  const res = await fetch('/api/auth/refresh', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: rt }),
+  });
+  if (!res.ok) { clearTokens(); return false; }
+  const { access_token, refresh_token } = await res.json();
+  setTokens(access_token, refresh_token);
+  return true;
+}
+
+async function authFetch(url, options = {}) {
+  const token = getAccessToken();
+  if (!token) { window.location.href = '/login'; return null; }
+  options.headers = { ...options.headers, 'Authorization': 'Bearer ' + token };
+  let res = await fetch(url, options);
+  if (res.status === 401) {
+    const ok = await refreshAccessToken();
+    if (!ok) { window.location.href = '/login'; return null; }
+    options.headers['Authorization'] = 'Bearer ' + getAccessToken();
+    res = await fetch(url, options);
+  }
+  return res;
+}
+
+async function logout() {
+  const rt = getRefreshToken();
+  if (rt) {
+    await fetch('/api/auth/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: rt }),
+    });
+  }
+  clearTokens();
+  window.location.href = '/login';
+}
+
 const STATUS_ICONS = {
   running: { char: '●', cls: 'running' },
   waiting: { char: '◐', cls: 'waiting' },
@@ -13,7 +66,8 @@ let sseRetryDelay = 1000;
 let openCreateForms = new Set();
 
 async function fetchSessions() {
-  const res = await fetch('/api/sessions');
+  const res = await authFetch('/api/sessions');
+  if (!res) return;
   if (!res.ok) return;
   state = await res.json();
   if (!state.sessions) state.sessions = [];
@@ -22,7 +76,9 @@ async function fetchSessions() {
 }
 
 function connectSSE() {
-  const es = new EventSource('/events');
+  const token = getAccessToken();
+  if (!token) { window.location.href = '/login'; return; }
+  const es = new EventSource('/events?token=' + encodeURIComponent(token));
   const dot = document.getElementById('connection-status');
 
   es.onopen = () => {
@@ -57,8 +113,11 @@ function connectSSE() {
   es.onerror = () => {
     dot.className = '';
     es.close();
-    setTimeout(connectSSE, sseRetryDelay);
-    sseRetryDelay = Math.min(sseRetryDelay * 2, 30000);
+    refreshAccessToken().then(ok => {
+      if (!ok) { window.location.href = '/login'; return; }
+      setTimeout(connectSSE, sseRetryDelay);
+      sseRetryDelay = Math.min(sseRetryDelay * 2, 30000);
+    });
   };
 }
 
@@ -69,8 +128,8 @@ function formatTime(tsStr) {
 }
 
 async function loadEvents(sessionID, container) {
-  const res = await fetch(`/api/sessions/${sessionID}/events`);
-  if (!res.ok) return;
+  const res = await authFetch(`/api/sessions/${sessionID}/events`);
+  if (!res || !res.ok) return;
   const { events } = await res.json();
   if (!events || events.length === 0) return;
 
@@ -87,7 +146,7 @@ async function loadEvents(sessionID, container) {
 }
 
 async function saveNotes(sessionID, notes) {
-  await fetch(`/api/sessions/${sessionID}/notes`, {
+  await authFetch(`/api/sessions/${sessionID}/notes`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ notes }),
@@ -95,8 +154,8 @@ async function saveNotes(sessionID, notes) {
 }
 
 async function apiAction(url, method) {
-  const res = await fetch(url, { method });
-  if (!res.ok) alert(`Failed: ${res.status}`);
+  const res = await authFetch(url, { method });
+  if (res && !res.ok) alert(`Failed: ${res.status}`);
   fetchSessions();
 }
 
@@ -154,7 +213,7 @@ function buildCreateForm(groupPath) {
       group_path: groupPath,
       project_path: pathInput.value.trim(),
     };
-    const res = await fetch('/api/sessions', {
+    const res = await authFetch('/api/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -295,7 +354,7 @@ function render() {
 
       row.onclick = () => {
         if (expandedSessions.has(s.ID)) {
-          fetch(`/api/sessions/${s.ID}/ttyd`, { method: 'DELETE' }).catch(() => {});
+          authFetch(`/api/sessions/${s.ID}/ttyd`, { method: 'DELETE' }).catch(() => {});
           expandedSessions.delete(s.ID);
         } else {
           expandedSessions.add(s.ID);
@@ -326,7 +385,21 @@ function render() {
   });
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // If no tokens at all, redirect to login
+  if (!getAccessToken() && !getRefreshToken()) {
+    window.location.href = '/login';
+    return;
+  }
+  // If we have a refresh token but no access token, try a silent refresh
+  if (!getAccessToken() && getRefreshToken()) {
+    const ok = await refreshAccessToken();
+    if (!ok) { window.location.href = '/login'; return; }
+  }
+
+  const logoutBtn = document.getElementById('logout-btn');
+  if (logoutBtn) logoutBtn.onclick = logout;
+
   fetchSessions();
   connectSSE();
 });
