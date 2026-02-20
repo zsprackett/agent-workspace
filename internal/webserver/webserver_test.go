@@ -159,6 +159,24 @@ func TestCertEndpointRemainsPublic(t *testing.T) {
 	}
 }
 
+func TestNoAuthWhenNoAccounts(t *testing.T) {
+	store, _ := db.Open(":memory:")
+	store.Migrate()
+	defer store.Close()
+	mgr := session.NewManager(store)
+	// Auth configured but no accounts created
+	srv := webserver.New(store, mgr, webserver.Config{
+		Port: 0, Host: "127.0.0.1", Enabled: true,
+		Auth: webserver.AuthConfig{JWTSecret: "secret", RefreshTokenTTL: "168h"},
+	})
+	req := httptest.NewRequest("GET", "/api/sessions", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("expected 200 with no accounts, got %d", w.Code)
+	}
+}
+
 func TestSessionsEndpoint(t *testing.T) {
 	store, _ := db.Open(":memory:")
 	store.Migrate()
