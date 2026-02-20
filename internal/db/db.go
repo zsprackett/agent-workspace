@@ -515,8 +515,8 @@ func (d *DB) IsEmpty() (bool, error) {
 
 func (d *DB) InsertSessionEvent(sessionID, eventType, detail string) error {
 	_, err := d.sql.Exec(
-		`INSERT INTO session_events (session_id, event_type, detail) VALUES (?, ?, ?)`,
-		sessionID, eventType, detail,
+		`INSERT INTO session_events (session_id, ts, event_type, detail) VALUES (?, ?, ?, ?)`,
+		sessionID, time.Now().UTC().Format("2006-01-02 15:04:05"), eventType, detail,
 	)
 	return err
 }

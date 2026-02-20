@@ -276,7 +276,7 @@ func (h *Home) updatePreview() {
 				sb.WriteString(text)
 				sb.WriteString("\n\nActivity\n")
 				for _, e := range evts {
-					ts := e.Ts.Format("15:04")
+					ts := e.Ts.Local().Format("15:04:05")
 					sb.WriteString(fmt.Sprintf("%s  %s\n", ts, e.EventType))
 				}
 				text = sb.String()
