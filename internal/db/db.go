@@ -146,6 +146,13 @@ func (d *DB) Migrate() error {
 		return fmt.Errorf("index session_events: %w", alterErr)
 	}
 
+	// Add ts_ms column to existing session_events tables; ignore "duplicate column" errors.
+	if _, alterErr := d.sql.Exec(`ALTER TABLE session_events ADD COLUMN ts_ms INTEGER NOT NULL DEFAULT 0`); alterErr != nil {
+		if !isDuplicateColumnError(alterErr) {
+			return fmt.Errorf("alter session_events add ts_ms: %w", alterErr)
+		}
+	}
+
 	_, err = d.sql.Exec(`
 		CREATE TABLE IF NOT EXISTS accounts (
 			id            TEXT PRIMARY KEY,
@@ -515,18 +522,18 @@ func (d *DB) IsEmpty() (bool, error) {
 
 func (d *DB) InsertSessionEvent(sessionID, eventType, detail string) error {
 	_, err := d.sql.Exec(
-		`INSERT INTO session_events (session_id, ts, event_type, detail) VALUES (?, ?, ?, ?)`,
-		sessionID, time.Now().UTC().Format("2006-01-02 15:04:05"), eventType, detail,
+		`INSERT INTO session_events (session_id, ts_ms, event_type, detail) VALUES (?, ?, ?, ?)`,
+		sessionID, time.Now().UnixMilli(), eventType, detail,
 	)
 	return err
 }
 
 func (d *DB) GetSessionEvents(sessionID string, limit int) ([]SessionEvent, error) {
 	rows, err := d.sql.Query(
-		`SELECT id, session_id, ts, event_type, detail
+		`SELECT id, session_id, ts_ms, event_type, detail
 		 FROM session_events
 		 WHERE session_id = ?
-		 ORDER BY ts DESC, id DESC
+		 ORDER BY ts_ms DESC, id DESC
 		 LIMIT ?`,
 		sessionID, limit,
 	)
@@ -538,11 +545,13 @@ func (d *DB) GetSessionEvents(sessionID string, limit int) ([]SessionEvent, erro
 	var events []SessionEvent
 	for rows.Next() {
 		var e SessionEvent
-		var ts string
-		if err := rows.Scan(&e.ID, &e.SessionID, &ts, &e.EventType, &e.Detail); err != nil {
+		var tsMs int64
+		if err := rows.Scan(&e.ID, &e.SessionID, &tsMs, &e.EventType, &e.Detail); err != nil {
 			return nil, err
 		}
-		e.Ts, _ = time.Parse("2006-01-02 15:04:05", ts)
+		if tsMs > 0 {
+			e.Ts = time.UnixMilli(tsMs)
+		}
 		events = append(events, e)
 	}
 	return events, rows.Err()
