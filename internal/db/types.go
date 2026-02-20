@@ -66,13 +66,28 @@ type Session struct {
 }
 
 type Group struct {
-	Path        string
-	Name        string
-	Expanded    bool
-	SortOrder   int
-	DefaultPath string
-	RepoURL     string
-	DefaultTool Tool
+	Path             string
+	Name             string
+	Expanded         bool
+	SortOrder        int
+	DefaultPath      string
+	RepoURL          string
+	DefaultTool      Tool
+	PreLaunchCommand string
+}
+
+type Account struct {
+	ID           string
+	Username     string
+	PasswordHash string
+	CreatedAt    time.Time
+}
+
+type RefreshToken struct {
+	Token     string
+	AccountID string
+	ExpiresAt time.Time
+	CreatedAt time.Time
 }
 
 type StatusUpdate struct {
@@ -80,4 +95,12 @@ type StatusUpdate struct {
 	Status       SessionStatus
 	Tool         Tool
 	Acknowledged bool
+}
+
+type SessionEvent struct {
+	ID        int64
+	SessionID string
+	Ts        time.Time
+	EventType string
+	Detail    string
 }

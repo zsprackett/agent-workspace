@@ -72,10 +72,58 @@ func SendKeys(name, keys string) error {
 	return exec.Command("tmux", "send-keys", "-t", name, keys, "Enter").Run()
 }
 
+// SendText sends literal text to a tmux pane without appending Enter.
+// Uses the -l flag to pass the text through literally without key binding lookup.
+func SendText(name, text string) error {
+	return exec.Command("tmux", "send-keys", "-t", name, "-l", text).Run()
+}
+
+// PipePane redirects tmux pane output to a shell command.
+// The -o flag opens the pipe only if not already open.
+func PipePane(name, command string) error {
+	return exec.Command("tmux", "pipe-pane", "-o", "-t", name, command).Run()
+}
+
+// StopPipePane closes the pipe-pane for the given session.
+func StopPipePane(name string) error {
+	return exec.Command("tmux", "pipe-pane", "-t", name).Run()
+}
+
+// ResizePane resizes the active pane in a tmux session to the given dimensions.
+func ResizePane(name string, cols, rows int) error {
+	return exec.Command("tmux", "resize-pane", "-t", name,
+		"-x", fmt.Sprintf("%d", cols),
+		"-y", fmt.Sprintf("%d", rows)).Run()
+}
+
+// PaneCursor returns the current cursor position (0-based col, row) for the
+// active pane in the given session.
+func PaneCursor(name string) (col, row int, err error) {
+	out, err := exec.Command("tmux", "display-message", "-t", name, "-p",
+		"#{cursor_x},#{cursor_y}").Output()
+	if err != nil {
+		return 0, 0, err
+	}
+	_, err = fmt.Sscanf(strings.TrimSpace(string(out)), "%d,%d", &col, &row)
+	return
+}
+
+// PaneSize returns the dimensions of the active pane in the given session.
+func PaneSize(name string) (cols, rows int, err error) {
+	out, err := exec.Command("tmux", "display-message", "-t", name, "-p",
+		"#{pane_width},#{pane_height}").Output()
+	if err != nil {
+		return 0, 0, err
+	}
+	_, err = fmt.Sscanf(strings.TrimSpace(string(out)), "%d,%d", &cols, &rows)
+	return
+}
+
 type CaptureOptions struct {
 	StartLine int
 	EndLine   int
 	Join      bool
+	EscapeSeq bool // adds -e flag for ANSI escape sequences
 }
 
 func CapturePane(name string, opts CaptureOptions) (string, error) {
@@ -86,6 +134,9 @@ func CapturePane(name string, opts CaptureOptions) (string, error) {
 	}
 	if opts.Join {
 		args = append(args, "-J")
+	}
+	if opts.EscapeSeq {
+		args = append(args, "-e")
 	}
 	out, err := exec.Command("tmux", args...).Output()
 	if err != nil {

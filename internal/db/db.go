@@ -1,7 +1,9 @@
 package db
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -93,12 +95,13 @@ func (d *DB) Migrate() error {
 
 	_, err = d.sql.Exec(`
 		CREATE TABLE IF NOT EXISTS groups (
-			path         TEXT PRIMARY KEY,
-			name         TEXT NOT NULL,
-			expanded     INTEGER NOT NULL DEFAULT 1,
-			sort_order   INTEGER NOT NULL DEFAULT 0,
-			default_path TEXT NOT NULL DEFAULT '',
-			repo_url     TEXT NOT NULL DEFAULT ''
+			path               TEXT PRIMARY KEY,
+			name               TEXT NOT NULL,
+			expanded           INTEGER NOT NULL DEFAULT 1,
+			sort_order         INTEGER NOT NULL DEFAULT 0,
+			default_path       TEXT NOT NULL DEFAULT '',
+			repo_url           TEXT NOT NULL DEFAULT '',
+			pre_launch_command TEXT NOT NULL DEFAULT ''
 		)
 	`)
 	if err != nil {
@@ -117,6 +120,61 @@ func (d *DB) Migrate() error {
 		if !isDuplicateColumnError(alterErr) {
 			return fmt.Errorf("alter groups add default_tool: %w", alterErr)
 		}
+	}
+
+	// Add pre_launch_command column to existing groups tables; ignore "duplicate column" errors.
+	if _, alterErr := d.sql.Exec(`ALTER TABLE groups ADD COLUMN pre_launch_command TEXT NOT NULL DEFAULT ''`); alterErr != nil {
+		if !isDuplicateColumnError(alterErr) {
+			return fmt.Errorf("alter groups add pre_launch_command: %w", alterErr)
+		}
+	}
+
+	_, err = d.sql.Exec(`
+		CREATE TABLE IF NOT EXISTS session_events (
+			id         INTEGER PRIMARY KEY,
+			session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+			ts         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			event_type TEXT NOT NULL,
+			detail     TEXT NOT NULL DEFAULT ''
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("create session_events: %w", err)
+	}
+
+	if _, alterErr := d.sql.Exec(`CREATE INDEX IF NOT EXISTS idx_session_events_session_id ON session_events(session_id, ts DESC)`); alterErr != nil {
+		return fmt.Errorf("index session_events: %w", alterErr)
+	}
+
+	// Add ts_ms column to existing session_events tables; ignore "duplicate column" errors.
+	if _, alterErr := d.sql.Exec(`ALTER TABLE session_events ADD COLUMN ts_ms INTEGER NOT NULL DEFAULT 0`); alterErr != nil {
+		if !isDuplicateColumnError(alterErr) {
+			return fmt.Errorf("alter session_events add ts_ms: %w", alterErr)
+		}
+	}
+
+	_, err = d.sql.Exec(`
+		CREATE TABLE IF NOT EXISTS accounts (
+			id            TEXT PRIMARY KEY,
+			username      TEXT NOT NULL UNIQUE,
+			password_hash TEXT NOT NULL,
+			created_at    INTEGER NOT NULL
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("create accounts: %w", err)
+	}
+
+	_, err = d.sql.Exec(`
+		CREATE TABLE IF NOT EXISTS refresh_tokens (
+			token      TEXT PRIMARY KEY,
+			account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			expires_at INTEGER NOT NULL,
+			created_at INTEGER NOT NULL
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("create refresh_tokens: %w", err)
 	}
 
 	return nil
@@ -265,12 +323,13 @@ func scanSession(row rowScanner) (*Session, error) {
 	var tool, status string
 	var createdAt, lastAccessed int64
 	var ack, hasUncommitted int
+	var notes sql.NullString
 	err := row.Scan(
 		&s.ID, &s.Title, &s.ProjectPath, &s.GroupPath, &s.SortOrder,
 		&s.Command, &tool, &status, &s.TmuxSession,
 		&createdAt, &lastAccessed,
 		&s.ParentSessionID, &s.WorktreePath, &s.WorktreeRepo, &s.WorktreeBranch,
-		&ack, &s.RepoURL, &hasUncommitted, &s.Notes,
+		&ack, &s.RepoURL, &hasUncommitted, &notes,
 	)
 	if err != nil {
 		return nil, err
@@ -281,6 +340,7 @@ func scanSession(row rowScanner) (*Session, error) {
 	s.LastAccessed = time.UnixMilli(lastAccessed)
 	s.Acknowledged = ack == 1
 	s.HasUncommitted = hasUncommitted == 1
+	s.Notes = notes.String
 	return &s, nil
 }
 
@@ -307,8 +367,8 @@ func (d *DB) SaveGroups(groups []*Group) error {
 	}
 	for _, g := range groups {
 		if _, err := tx.Exec(
-			"INSERT INTO groups (path, name, expanded, sort_order, default_path, repo_url, default_tool) VALUES (?,?,?,?,?,?,?)",
-			g.Path, g.Name, boolToInt(g.Expanded), g.SortOrder, g.DefaultPath, g.RepoURL, string(g.DefaultTool),
+			"INSERT INTO groups (path, name, expanded, sort_order, default_path, repo_url, default_tool, pre_launch_command) VALUES (?,?,?,?,?,?,?,?)",
+			g.Path, g.Name, boolToInt(g.Expanded), g.SortOrder, g.DefaultPath, g.RepoURL, string(g.DefaultTool), g.PreLaunchCommand,
 		); err != nil {
 			return err
 		}
@@ -317,7 +377,7 @@ func (d *DB) SaveGroups(groups []*Group) error {
 }
 
 func (d *DB) LoadGroups() ([]*Group, error) {
-	rows, err := d.sql.Query("SELECT path, name, expanded, sort_order, default_path, repo_url, default_tool FROM groups ORDER BY sort_order")
+	rows, err := d.sql.Query("SELECT path, name, expanded, sort_order, default_path, repo_url, default_tool, pre_launch_command FROM groups ORDER BY sort_order")
 	if err != nil {
 		return nil, err
 	}
@@ -327,7 +387,7 @@ func (d *DB) LoadGroups() ([]*Group, error) {
 		var g Group
 		var expanded int
 		var defaultTool string
-		if err := rows.Scan(&g.Path, &g.Name, &expanded, &g.SortOrder, &g.DefaultPath, &g.RepoURL, &defaultTool); err != nil {
+		if err := rows.Scan(&g.Path, &g.Name, &expanded, &g.SortOrder, &g.DefaultPath, &g.RepoURL, &defaultTool, &g.PreLaunchCommand); err != nil {
 			return nil, err
 		}
 		g.Expanded = expanded == 1
@@ -370,8 +430,131 @@ func (d *DB) LastModified() int64 {
 	return ts
 }
 
+func randomID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+func (d *DB) CreateAccount(username, passwordHash string) (*Account, error) {
+	acc := &Account{
+		ID:           randomID(),
+		Username:     username,
+		PasswordHash: passwordHash,
+		CreatedAt:    time.Now(),
+	}
+	_, err := d.sql.Exec(
+		`INSERT INTO accounts (id, username, password_hash, created_at) VALUES (?,?,?,?)`,
+		acc.ID, acc.Username, acc.PasswordHash, acc.CreatedAt.UnixMilli(),
+	)
+	return acc, err
+}
+
+func (d *DB) GetAccountByUsername(username string) (*Account, error) {
+	row := d.sql.QueryRow(
+		`SELECT id, username, password_hash, created_at FROM accounts WHERE username = ?`, username)
+	var acc Account
+	var createdAt int64
+	if err := row.Scan(&acc.ID, &acc.Username, &acc.PasswordHash, &createdAt); err != nil {
+		return nil, err
+	}
+	acc.CreatedAt = time.UnixMilli(createdAt)
+	return &acc, nil
+}
+
+func (d *DB) GetAccountByID(id string) (*Account, error) {
+	row := d.sql.QueryRow(
+		`SELECT id, username, password_hash, created_at FROM accounts WHERE id = ?`, id)
+	var acc Account
+	var createdAt int64
+	if err := row.Scan(&acc.ID, &acc.Username, &acc.PasswordHash, &createdAt); err != nil {
+		return nil, err
+	}
+	acc.CreatedAt = time.UnixMilli(createdAt)
+	return &acc, nil
+}
+
+func (d *DB) UpdateAccountPassword(id, passwordHash string) error {
+	_, err := d.sql.Exec(`UPDATE accounts SET password_hash = ? WHERE id = ?`, passwordHash, id)
+	return err
+}
+
+func (d *DB) HasAnyAccount() (bool, error) {
+	var count int
+	err := d.sql.QueryRow(`SELECT COUNT(*) FROM accounts`).Scan(&count)
+	return count > 0, err
+}
+
+func (d *DB) CreateRefreshToken(token, accountID string, expiresAt time.Time) error {
+	_, err := d.sql.Exec(
+		`INSERT INTO refresh_tokens (token, account_id, expires_at, created_at) VALUES (?,?,?,?)`,
+		token, accountID, expiresAt.UnixMilli(), time.Now().UnixMilli(),
+	)
+	return err
+}
+
+func (d *DB) GetRefreshToken(token string) (*RefreshToken, error) {
+	row := d.sql.QueryRow(
+		`SELECT token, account_id, expires_at, created_at FROM refresh_tokens WHERE token = ?`, token)
+	var rt RefreshToken
+	var expiresAt, createdAt int64
+	if err := row.Scan(&rt.Token, &rt.AccountID, &expiresAt, &createdAt); err != nil {
+		return nil, err
+	}
+	rt.ExpiresAt = time.UnixMilli(expiresAt)
+	rt.CreatedAt = time.UnixMilli(createdAt)
+	return &rt, nil
+}
+
+func (d *DB) DeleteRefreshToken(token string) error {
+	_, err := d.sql.Exec(`DELETE FROM refresh_tokens WHERE token = ?`, token)
+	return err
+}
+
+func (d *DB) DeleteRefreshTokensByAccount(accountID string) error {
+	_, err := d.sql.Exec(`DELETE FROM refresh_tokens WHERE account_id = ?`, accountID)
+	return err
+}
+
 func (d *DB) IsEmpty() (bool, error) {
 	var count int
 	err := d.sql.QueryRow("SELECT COUNT(*) FROM sessions").Scan(&count)
 	return count == 0, err
+}
+
+func (d *DB) InsertSessionEvent(sessionID, eventType, detail string) error {
+	_, err := d.sql.Exec(
+		`INSERT INTO session_events (session_id, ts_ms, event_type, detail) VALUES (?, ?, ?, ?)`,
+		sessionID, time.Now().UnixMilli(), eventType, detail,
+	)
+	return err
+}
+
+func (d *DB) GetSessionEvents(sessionID string, limit int) ([]SessionEvent, error) {
+	rows, err := d.sql.Query(
+		`SELECT id, session_id, ts_ms, event_type, detail
+		 FROM session_events
+		 WHERE session_id = ?
+		 ORDER BY ts_ms DESC, id DESC
+		 LIMIT ?`,
+		sessionID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []SessionEvent
+	for rows.Next() {
+		var e SessionEvent
+		var tsMs int64
+		if err := rows.Scan(&e.ID, &e.SessionID, &tsMs, &e.EventType, &e.Detail); err != nil {
+			return nil, err
+		}
+		if tsMs > 0 {
+			e.Ts = time.UnixMilli(tsMs)
+		}
+		events = append(events, e)
+	}
+	return events, rows.Err()
 }

@@ -6,12 +6,13 @@ import (
 )
 
 type GroupResult struct {
-	Name        string
-	RepoURL     string
-	DefaultTool string
+	Name             string
+	RepoURL          string
+	DefaultTool      string
+	PreLaunchCommand string
 }
 
-func GroupDialog(title, currentName, currentRepoURL, currentDefaultTool string, onSubmit func(GroupResult), onCancel func()) *tview.Form {
+func GroupDialog(title, currentName, currentRepoURL, currentDefaultTool, currentPreLaunchCommand string, onSubmit func(GroupResult), onCancel func()) *tview.Form {
 	form := tview.NewForm()
 	form.SetBorder(true).SetTitle(" " + title + " ").SetTitleAlign(tview.AlignLeft)
 	form.SetBackgroundColor(tcell.ColorDefault)
@@ -30,6 +31,7 @@ func GroupDialog(title, currentName, currentRepoURL, currentDefaultTool string, 
 	form.AddInputField("Group name", currentName, 40, nil, nil)
 	form.AddInputField("GitHub URL (optional)", currentRepoURL, 50, nil, nil)
 	form.AddDropDown("Default Tool", toolLabels, currentToolIdx, nil)
+	form.AddInputField("Pre-launch command (optional)", currentPreLaunchCommand, 50, nil, nil)
 	form.AddButton("OK", func() {
 		name := form.GetFormItemByLabel("Group name").(*tview.InputField).GetText()
 		if name != "" {
@@ -42,7 +44,8 @@ func GroupDialog(title, currentName, currentRepoURL, currentDefaultTool string, 
 					break
 				}
 			}
-			onSubmit(GroupResult{Name: name, RepoURL: repoURL, DefaultTool: defaultTool})
+			prelaunch := form.GetFormItemByLabel("Pre-launch command (optional)").(*tview.InputField).GetText()
+			onSubmit(GroupResult{Name: name, RepoURL: repoURL, DefaultTool: defaultTool, PreLaunchCommand: prelaunch})
 		}
 	})
 	form.AddButton("Cancel", onCancel)

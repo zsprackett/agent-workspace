@@ -15,6 +15,7 @@ import (
 type Config struct {
 	Enabled bool   `json:"enabled"`
 	Webhook string `json:"webhook"`
+	NtfyURL string `json:"ntfy"`
 }
 
 // Notifier fires system notifications and optional webhook POSTs.
@@ -39,6 +40,9 @@ func (n *Notifier) Notify(s db.Session) {
 
 	if n.cfg.Webhook != "" {
 		n.sendWebhook(s)
+	}
+	if n.cfg.NtfyURL != "" {
+		n.sendNtfy(s)
 	}
 }
 
@@ -72,4 +76,30 @@ func (n *Notifier) sendWebhook(s db.Session) {
 	}
 	client := &http.Client{Timeout: 5 * time.Second}
 	client.Post(n.cfg.Webhook, "application/json", bytes.NewReader(data))
+}
+
+type ntfyPayload struct {
+	Title    string   `json:"title"`
+	Message  string   `json:"message"`
+	Priority int      `json:"priority"`
+	Tags     []string `json:"tags"`
+}
+
+func (n *Notifier) sendNtfy(s db.Session) {
+	payload := ntfyPayload{
+		Title:    fmt.Sprintf("%s is waiting", s.Title),
+		Message:  fmt.Sprintf("%s · %s", string(s.Tool), s.GroupPath),
+		Priority: 4,
+		Tags:     []string{"rotating_light"},
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Post(n.cfg.NtfyURL, "application/json", bytes.NewReader(data))
+	if err != nil {
+		return
+	}
+	resp.Body.Close()
 }

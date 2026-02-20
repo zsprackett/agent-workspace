@@ -18,6 +18,7 @@ import (
 	"github.com/zsprackett/agent-workspace/internal/session"
 	"github.com/zsprackett/agent-workspace/internal/tmux"
 	"github.com/zsprackett/agent-workspace/internal/ui/dialogs"
+	"github.com/zsprackett/agent-workspace/internal/webserver"
 )
 
 type App struct {
@@ -30,6 +31,7 @@ type App struct {
 	syn    *syncer.Syncer
 	cfg    config.Config
 	groups []*db.Group
+	web    *webserver.Server
 }
 
 func NewApp(store *db.DB, cfg config.Config) *App {
@@ -41,17 +43,36 @@ func NewApp(store *db.DB, cfg config.Config) *App {
 
 	a.tapp = tview.NewApplication()
 	a.pages = tview.NewPages()
-	a.home = NewHome(a.tapp)
+	a.home = NewHome(a.tapp, store)
 
 	notifier := notify.New(notify.Config{
 		Enabled: cfg.Notifications.Enabled,
 		Webhook: cfg.Notifications.Webhook,
+		NtfyURL: cfg.Notifications.NtfyURL,
 	})
+
+	a.web = webserver.New(store, a.mgr, webserver.Config{
+		Enabled: cfg.Webserver.Enabled,
+		Port:    cfg.Webserver.Port,
+		Host:    cfg.Webserver.Host,
+		TLS: webserver.TLSConfig{
+			Mode:     cfg.Webserver.TLS.Mode,
+			Domain:   cfg.Webserver.TLS.Domain,
+			CertFile: cfg.Webserver.TLS.CertFile,
+			KeyFile:  cfg.Webserver.TLS.KeyFile,
+			CacheDir: cfg.Webserver.TLS.CacheDir,
+		},
+		Auth: webserver.AuthConfig{
+			JWTSecret:       cfg.Webserver.Auth.JWTSecret,
+			RefreshTokenTTL: cfg.Webserver.Auth.RefreshTokenTTL,
+		},
+	})
+
 	a.mon = monitor.New(store, func() {
 		a.tapp.QueueUpdateDraw(func() {
 			a.refreshHome()
 		})
-	}, notifier)
+	}, notifier, a.web)
 
 	a.syn = syncer.New(store, cfg.ReposDir)
 
@@ -91,6 +112,10 @@ func (a *App) Run() error {
 			Expanded: true,
 		}}
 		a.store.SaveGroups(groups)
+	}
+
+	if err := a.web.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: webserver: %v\n", err)
 	}
 
 	a.refreshHome()
@@ -148,15 +173,31 @@ func (a *App) onNew(groupPath string) {
 				Command:   result.Command,
 				GroupPath: result.GroupPath,
 			}
-			// Look up the selected group's repo URL.
+			// Look up the selected group's repo URL and pre-launch command.
 			var groupRepoURL string
+			var preLaunchCmd string
 			for _, g := range groups {
 				if g.Path == result.GroupPath {
 					groupRepoURL = g.RepoURL
+					preLaunchCmd = g.PreLaunchCommand
 					break
 				}
 			}
 			createSession := func() {
+				if preLaunchCmd != "" {
+					toolCmd := db.ToolCommand(opts.Tool, opts.Command)
+					var out string
+					var err error
+					if opts.WorktreeRepo != "" {
+						out, err = session.RunPreLaunchCommand(preLaunchCmd, toolCmd, opts.WorktreeRepo, opts.WorktreePath)
+					} else {
+						out, err = session.RunPreLaunchCommand(preLaunchCmd, toolCmd, opts.ProjectPath)
+					}
+					if err != nil {
+						a.showError(fmt.Sprintf("Pre-launch command failed: %v\n%s", err, out))
+						return
+					}
+				}
 				s, err := a.mgr.Create(opts)
 				if err != nil {
 					a.showError(fmt.Sprintf("Create failed: %v", err))
@@ -305,15 +346,36 @@ func (a *App) onStop(item listItem) {
 }
 
 func (a *App) onRestart(item listItem) {
-	if item.session != nil {
-		a.mgr.Restart(item.session.ID)
+	if item.session == nil {
+		return
+	}
+	doRestart := func() {
+		if err := a.mgr.Restart(item.session.ID); err != nil {
+			a.showError(fmt.Sprintf("Restart failed: %v", err))
+			return
+		}
 		a.refreshHome()
+	}
+	switch item.session.Status {
+	case db.StatusStopped, db.StatusError:
+		doRestart()
+	default:
+		modal := tview.NewModal().
+			SetText(fmt.Sprintf("Session '%s' is still running.\n\nRestart it?", item.session.Title)).
+			AddButtons([]string{"Restart", "Cancel"}).
+			SetDoneFunc(func(_ int, label string) {
+				a.closeDialog("confirm-restart")
+				if label == "Restart" {
+					doRestart()
+				}
+			})
+		a.pages.AddPage("confirm-restart", modal, true, true)
 	}
 }
 
 func (a *App) onEdit(item listItem) {
 	if item.isGroup {
-		form := dialogs.GroupDialog("Edit Group", item.group.Name, item.group.RepoURL, string(item.group.DefaultTool),
+		form := dialogs.GroupDialog("Edit Group", item.group.Name, item.group.RepoURL, string(item.group.DefaultTool), item.group.PreLaunchCommand,
 			func(result dialogs.GroupResult) {
 				a.closeDialog("edit")
 				groups, _ := a.store.LoadGroups()
@@ -322,6 +384,7 @@ func (a *App) onEdit(item listItem) {
 						g.Name = result.Name
 						g.RepoURL = result.RepoURL
 						g.DefaultTool = db.Tool(result.DefaultTool)
+						g.PreLaunchCommand = result.PreLaunchCommand
 					}
 				}
 				a.store.SaveGroups(groups)
@@ -351,17 +414,18 @@ func (a *App) onEdit(item listItem) {
 }
 
 func (a *App) onNewGroup() {
-	form := dialogs.GroupDialog("New Group", "", "", "", func(result dialogs.GroupResult) {
+	form := dialogs.GroupDialog("New Group", "", "", "", "", func(result dialogs.GroupResult) {
 		a.closeDialog("new-group")
 		path := strings.ToLower(strings.ReplaceAll(result.Name, " ", "-"))
 		groups, _ := a.store.LoadGroups()
 		groups = append(groups, &db.Group{
-			Path:        path,
-			Name:        result.Name,
-			Expanded:    true,
-			SortOrder:   len(groups),
-			RepoURL:     result.RepoURL,
-			DefaultTool: db.Tool(result.DefaultTool),
+			Path:             path,
+			Name:             result.Name,
+			Expanded:         true,
+			SortOrder:        len(groups),
+			RepoURL:          result.RepoURL,
+			DefaultTool:      db.Tool(result.DefaultTool),
+			PreLaunchCommand: result.PreLaunchCommand,
 		})
 		a.store.SaveGroups(groups)
 		a.store.Touch()

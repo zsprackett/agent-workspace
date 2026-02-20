@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -14,6 +16,28 @@ type WorktreeConfig struct {
 type NotificationsConfig struct {
 	Enabled bool   `json:"enabled"`
 	Webhook string `json:"webhook"`
+	NtfyURL string `json:"ntfy"`
+}
+
+type TLSConfig struct {
+	Mode     string `json:"mode"`     // "self-signed", "autocert", "manual", or "" (disabled)
+	Domain   string `json:"domain"`   // required for autocert
+	CertFile string `json:"certFile"` // required for manual
+	KeyFile  string `json:"keyFile"`  // required for manual
+	CacheDir string `json:"cacheDir"` // for autocert and self-signed; defaults to ~/.agent-workspace/certs
+}
+
+type AuthConfig struct {
+	JWTSecret       string `json:"jwtSecret"`
+	RefreshTokenTTL string `json:"refreshTokenTTL"` // e.g. "168h", defaults to 7 days
+}
+
+type WebserverConfig struct {
+	Enabled bool       `json:"enabled"`
+	Port    int        `json:"port"`
+	Host    string     `json:"host"`
+	TLS     TLSConfig  `json:"tls"`
+	Auth    AuthConfig `json:"auth"`
 }
 
 type Config struct {
@@ -23,6 +47,7 @@ type Config struct {
 	ReposDir      string              `json:"reposDir"`
 	WorktreesDir  string              `json:"worktreesDir"`
 	Notifications NotificationsConfig `json:"notifications"`
+	Webserver     WebserverConfig     `json:"webserver"`
 }
 
 func Defaults() Config {
@@ -33,6 +58,11 @@ func Defaults() Config {
 		Worktree:     WorktreeConfig{DefaultBaseBranch: "main"},
 		ReposDir:     filepath.Join(home, ".agent-workspace", "repos"),
 		WorktreesDir: filepath.Join(home, ".agent-workspace", "worktrees"),
+		Webserver: WebserverConfig{
+			Enabled: true,
+			Port:    8080,
+			Host:    "0.0.0.0",
+		},
 	}
 }
 
@@ -54,6 +84,24 @@ func DefaultPath() string {
 func DBPath() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".agent-workspace", "state.db")
+}
+
+// EnsureJWTSecret generates and saves a JWT secret if one is not already set.
+// It writes the updated config back to path.
+func EnsureJWTSecret(path string, cfg *Config) error {
+	if cfg.Webserver.Auth.JWTSecret != "" {
+		return nil
+	}
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return err
+	}
+	cfg.Webserver.Auth.JWTSecret = hex.EncodeToString(b)
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0600)
 }
 
 func Load(path string) (Config, error) {

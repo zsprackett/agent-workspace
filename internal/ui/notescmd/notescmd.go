@@ -35,7 +35,7 @@ func Run(tmuxSession string) error {
 	form.AddTextArea("", s.Notes, 56, 14, 0, nil)
 
 	form.AddButton("Save", func() {
-		notes := form.GetFormItemByLabel("").(*tview.TextArea).GetText()
+		notes := form.GetFormItem(0).(*tview.TextArea).GetText()
 		store.UpdateSessionNotes(s.ID, notes)
 		store.Touch()
 		app.Stop()

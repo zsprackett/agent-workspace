@@ -25,6 +25,7 @@ type listItem struct {
 type Home struct {
 	*tview.Flex
 	app     *tview.Application
+	store   *db.DB
 	table   *tview.Table
 	preview *tview.TextView
 	header  *tview.TextView
@@ -47,8 +48,8 @@ type Home struct {
 	onQuit     func()
 }
 
-func NewHome(app *tview.Application) *Home {
-	h := &Home{app: app}
+func NewHome(app *tview.Application, store *db.DB) *Home {
+	h := &Home{app: app, store: store}
 
 	h.header = tview.NewTextView().
 		SetDynamicColors(true).
@@ -266,8 +267,24 @@ func (h *Home) updatePreview() {
 		if len(kept) > 50 {
 			kept = kept[len(kept)-50:]
 		}
+		text := strings.Join(kept, "\n")
+
+		if h.store != nil {
+			evts, err := h.store.GetSessionEvents(s.ID, 8)
+			if err == nil && len(evts) > 0 {
+				var sb strings.Builder
+				sb.WriteString(text)
+				sb.WriteString("\n\nActivity\n")
+				for _, e := range evts {
+					ts := e.Ts.Local().Format("15:04:05")
+					sb.WriteString(fmt.Sprintf("%s  %s\n", ts, e.EventType))
+				}
+				text = sb.String()
+			}
+		}
+
 		h.app.QueueUpdateDraw(func() {
-			h.preview.SetText(strings.Join(kept, "\n"))
+			h.preview.SetText(text)
 			h.preview.ScrollToEnd()
 		})
 	}()

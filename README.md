@@ -99,6 +99,50 @@ When `notifications.enabled` is `true`, a macOS system notification fires whenev
 }
 ```
 
+### ntfy (mobile push)
+
+Set `notifications.ntfy` to a [ntfy](https://ntfy.sh) topic URL for native push notifications on iOS/Android.
+
+**Self-hosted ntfy** (same machine, same network):
+```bash
+brew install ntfy
+ntfy serve
+```
+Then set `"ntfy": "http://localhost:8088/agent-workspace"` and subscribe to `agent-workspace` in the ntfy app.
+
+**ntfy.sh public** (works from anywhere -- use a random topic name):
+```json
+{ "notifications": { "ntfy": "https://ntfy.sh/your-random-uuid-here" } }
+```
+
+## Web UI
+
+When agent-workspace starts, it serves a web dashboard at `http://localhost:8080` (configurable). Open it from any browser on the same network -- including iPhone Safari.
+
+To add it to your home screen on iOS: open in Safari, tap Share, then "Add to Home Screen". The app runs full-screen with an icon.
+
+Configuration:
+
+```json
+{
+  "webserver": {
+    "enabled": true,
+    "port": 8080,
+    "host": "0.0.0.0"
+  }
+}
+```
+
+Set `enabled: false` to disable. Set `host: "127.0.0.1"` to restrict to localhost only.
+
+### Tailscale (access from anywhere)
+
+To access from your phone on a different network:
+
+1. Install [Tailscale](https://tailscale.com) on the Mac running agent-workspace
+2. Install Tailscale on your phone
+3. Open `http://your-mac.tailnet-name.ts.net:8080`
+
 Data directory: `~/.agent-workspace/`
 
 ## Git Worktree Integration
