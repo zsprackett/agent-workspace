@@ -7,8 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/google/uuid"
 	"github.com/rivo/tview"
 	"github.com/zsprackett/agent-workspace/internal/config"
 	"github.com/zsprackett/agent-workspace/internal/db"
@@ -215,66 +217,168 @@ func (a *App) onNew(groupPath string) {
 					a.showError(fmt.Sprintf("Invalid group repo URL: %v", err))
 					return
 				}
-				// Resolve the title now so the branch name and session title match.
+				// Resolve title before inserting so branch name matches.
 				title := result.Title
 				if title == "" {
 					title = session.GenerateTitle()
 				}
 				opts.Title = title
+				command := opts.Command
+				if command == "" {
+					command = db.ToolCommand(opts.Tool, "")
+				}
+
+				// Insert a pending row immediately so the session appears in the list.
+				sessions, _ := a.store.LoadSessions()
+				now := time.Now()
+				sessionID := uuid.NewString()
+				pending := &db.Session{
+					ID:           sessionID,
+					Title:        title,
+					GroupPath:    result.GroupPath,
+					Tool:         result.Tool,
+					Command:      command,
+					Status:       db.StatusCreating,
+					CreatedAt:    now,
+					LastAccessed: now,
+					SortOrder:    len(sessions),
+					RepoURL:      groupRepoURL,
+				}
+				if err := a.store.SaveSession(pending); err != nil {
+					a.showError(fmt.Sprintf("Create failed: %v", err))
+					return
+				}
+				_ = a.store.InsertSessionEvent(sessionID, "created", "")
+				a.store.Touch()
+				a.refreshHome()
 
 				bareRepoPath := git.BareRepoPath(a.cfg.ReposDir, host, owner, repo)
-				if err := os.MkdirAll(filepath.Dir(bareRepoPath), 0755); err != nil {
-					a.showError(fmt.Sprintf("Create repos dir failed: %v", err))
-					return
-				}
-				if !git.IsBareRepo(bareRepoPath) {
-					if err := git.CloneBare(groupRepoURL, bareRepoPath); err != nil {
-						a.showError(fmt.Sprintf("Clone failed: %v", err))
-						return
-					}
-				} else {
-					if err := git.FetchBare(bareRepoPath); err != nil {
-						a.showError(fmt.Sprintf("Fetch failed: %v", err))
-						return
-					}
-				}
 				branch := git.SanitizeBranchName(title)
 				wtPath := git.WorktreePath(a.cfg.WorktreesDir, host, owner, repo, branch)
-				if err := os.MkdirAll(filepath.Dir(wtPath), 0755); err != nil {
-					a.showError(fmt.Sprintf("Create worktrees dir failed: %v", err))
-					return
+
+				cancelCreate := func(msg string) {
+					a.store.DeleteSession(sessionID)
+					_ = a.store.Touch()
+					a.refreshHome()
+					if msg != "" {
+						a.showError(msg)
+					}
 				}
-				if _, err := git.CreateWorktree(bareRepoPath, branch, wtPath, a.cfg.Worktree.DefaultBaseBranch); err != nil {
-					if errors.Is(err, git.ErrWorktreeExists) {
-						modal := tview.NewModal().
-							SetText(fmt.Sprintf("Worktree for branch '%s' already exists.\n\nReuse it or cancel?", branch)).
-							AddButtons([]string{"Reuse", "Cancel"}).
-							SetDoneFunc(func(_ int, label string) {
-								a.closeDialog("worktree-exists")
-								if label == "Reuse" {
-									opts.WorktreePath = wtPath
-									opts.WorktreeRepo = bareRepoPath
-									opts.WorktreeBranch = branch
-									opts.ProjectPath = wtPath
-									opts.RepoURL = groupRepoURL
-									createSession()
-								}
-							})
-						a.pages.AddPage("worktree-exists", modal, true, true)
+
+				go func() {
+					// 1. Ensure bare repo directory exists.
+					if err := os.MkdirAll(filepath.Dir(bareRepoPath), 0755); err != nil {
+						a.tapp.QueueUpdateDraw(func() {
+							cancelCreate(fmt.Sprintf("Create repos dir failed: %v", err))
+						})
 						return
 					}
-					a.showError(fmt.Sprintf("Create worktree failed: %v", err))
-					return
-				}
-				opts.WorktreePath = wtPath
-				opts.WorktreeRepo = bareRepoPath
-				opts.WorktreeBranch = branch
-				opts.ProjectPath = wtPath
-				opts.RepoURL = groupRepoURL
+
+					// 2. Clone or fetch the bare repo.
+					if !git.IsBareRepo(bareRepoPath) {
+						if err := git.CloneBare(groupRepoURL, bareRepoPath); err != nil {
+							a.tapp.QueueUpdateDraw(func() {
+								cancelCreate(fmt.Sprintf("Clone failed: %v", err))
+							})
+							return
+						}
+					} else {
+						if err := git.FetchBare(bareRepoPath); err != nil {
+							a.tapp.QueueUpdateDraw(func() {
+								cancelCreate(fmt.Sprintf("Fetch failed: %v", err))
+							})
+							return
+						}
+					}
+
+					// 3. Ensure worktree parent directory exists.
+					if err := os.MkdirAll(filepath.Dir(wtPath), 0755); err != nil {
+						a.tapp.QueueUpdateDraw(func() {
+							cancelCreate(fmt.Sprintf("Create worktrees dir failed: %v", err))
+						})
+						return
+					}
+
+					// 4. Create the worktree; handle the "already exists" case via a channel.
+					if _, err := git.CreateWorktree(bareRepoPath, branch, wtPath, a.cfg.Worktree.DefaultBaseBranch); err != nil {
+						if errors.Is(err, git.ErrWorktreeExists) {
+							reuseCh := make(chan bool, 1)
+							a.tapp.QueueUpdateDraw(func() {
+								modal := tview.NewModal().
+									SetText(fmt.Sprintf("Worktree for branch '%s' already exists.\n\nReuse it or cancel?", branch)).
+									AddButtons([]string{"Reuse", "Cancel"}).
+									SetDoneFunc(func(_ int, label string) {
+										a.closeDialog("worktree-exists")
+										reuseCh <- (label == "Reuse")
+									})
+								a.pages.AddPage("worktree-exists", modal, true, true)
+							})
+							if !<-reuseCh {
+								a.tapp.QueueUpdateDraw(func() { cancelCreate("") })
+								return
+							}
+							// else: fall through and use the existing worktree
+						} else {
+							a.tapp.QueueUpdateDraw(func() {
+								cancelCreate(fmt.Sprintf("Create worktree failed: %v", err))
+							})
+							return
+						}
+					}
+
+					// 5. Run pre-launch command if set.
+					if preLaunchCmd != "" {
+						toolCmd := db.ToolCommand(opts.Tool, opts.Command)
+						out, err := session.RunPreLaunchCommand(preLaunchCmd, toolCmd, bareRepoPath, wtPath)
+						if err != nil {
+							a.tapp.QueueUpdateDraw(func() {
+								cancelCreate(fmt.Sprintf("Pre-launch command failed: %v\n%s", err, out))
+							})
+							return
+						}
+					}
+
+					// 6. Create the tmux session.
+					tmuxName := tmux.GenerateSessionName(title)
+					if err := tmux.CreateSession(tmux.CreateOptions{
+						Name:    tmuxName,
+						Command: command,
+						Cwd:     wtPath,
+					}); err != nil {
+						a.tapp.QueueUpdateDraw(func() {
+							cancelCreate(fmt.Sprintf("Create failed: %v", err))
+						})
+						return
+					}
+
+					// 7. Update the DB row to running.
+					pending.TmuxSession = tmuxName
+					pending.Status = db.StatusRunning
+					pending.ProjectPath = wtPath
+					pending.WorktreePath = wtPath
+					pending.WorktreeRepo = bareRepoPath
+					pending.WorktreeBranch = branch
+					pending.LastAccessed = time.Now()
+					if err := a.store.SaveSession(pending); err != nil {
+						// tmux session was created; kill it to avoid orphan.
+						tmux.KillSession(tmuxName)
+						a.tapp.QueueUpdateDraw(func() {
+							cancelCreate(fmt.Sprintf("Save failed: %v", err))
+						})
+						return
+					}
+					_ = a.store.Touch()
+
+					a.tapp.QueueUpdateDraw(func() {
+						a.refreshHome()
+						a.onAttachSession(pending)
+					})
+				}()
 			} else {
+				// Non-worktree path: unchanged.
 				opts.ProjectPath = result.ProjectPath
+				createSession()
 			}
-			createSession()
 		},
 		func() { a.closeDialog("new-session") },
 	)
