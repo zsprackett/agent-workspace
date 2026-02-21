@@ -197,8 +197,16 @@ func (h *Home) renderTable() {
 			if s.HasUncommitted {
 				dirtyMark = "* "
 			}
-			age := formatAge(s.LastAccessed)
-			text := fmt.Sprintf("   %s %s%-20s %s  %s", icon, dirtyMark, title, s.Tool, age)
+			var ageOrStatus string
+			switch s.Status {
+			case db.StatusCreating:
+				ageOrStatus = "creating..."
+			case db.StatusDeleting:
+				ageOrStatus = "deleting..."
+			default:
+				ageOrStatus = formatAge(s.LastAccessed)
+			}
+			text := fmt.Sprintf("   %s %s%-20s %s  %s", icon, dirtyMark, title, s.Tool, ageOrStatus)
 			cell := tview.NewTableCell(text).
 				SetTextColor(color).
 				SetBackgroundColor(ColorBackground).
@@ -319,17 +327,27 @@ func (h *Home) setupInput() {
 		row, _ := h.table.GetSelection()
 		h.selected = row
 
+		isPending := func(item listItem) bool {
+			return item.session != nil &&
+				(item.session.Status == db.StatusCreating || item.session.Status == db.StatusDeleting)
+		}
+
 		switch event.Key() {
 		case tcell.KeyLeft:
 			h.collapseOrUp()
 			return nil
 		case tcell.KeyRight:
+			if item, ok := h.selectedItem(); ok && isPending(item) {
+				return nil
+			}
 			h.expandOrAttach()
 			return nil
 		case tcell.KeyEnter:
 			if item, ok := h.selectedItem(); ok {
 				if item.isGroup {
 					h.toggleGroup(item.group)
+				} else if isPending(item) {
+					// no-op
 				} else if h.onAttach != nil {
 					h.onAttach(item)
 				}
@@ -340,14 +358,14 @@ func (h *Home) setupInput() {
 		switch event.Rune() {
 		case 'a':
 			if item, ok := h.selectedItem(); ok {
-				if !item.isGroup && h.onAttach != nil {
+				if !item.isGroup && !isPending(item) && h.onAttach != nil {
 					h.onAttach(item)
 				}
 			}
 			return nil
 		case 'n':
 			if item, ok := h.selectedItem(); ok && !item.isGroup {
-				if h.onNotes != nil {
+				if !isPending(item) && h.onNotes != nil {
 					h.onNotes(item)
 				}
 			} else if h.onNew != nil {
@@ -356,28 +374,28 @@ func (h *Home) setupInput() {
 			return nil
 		case 'd':
 			if item, ok := h.selectedItem(); ok {
-				if h.onDelete != nil {
+				if !isPending(item) && h.onDelete != nil {
 					h.onDelete(item)
 				}
 			}
 			return nil
 		case 's':
 			if item, ok := h.selectedItem(); ok {
-				if !item.isGroup && h.onStop != nil {
+				if !item.isGroup && !isPending(item) && h.onStop != nil {
 					h.onStop(item)
 				}
 			}
 			return nil
 		case 'x':
 			if item, ok := h.selectedItem(); ok {
-				if !item.isGroup && h.onRestart != nil {
+				if !item.isGroup && !isPending(item) && h.onRestart != nil {
 					h.onRestart(item)
 				}
 			}
 			return nil
 		case 'e':
 			if item, ok := h.selectedItem(); ok {
-				if h.onEdit != nil {
+				if !isPending(item) && h.onEdit != nil {
 					h.onEdit(item)
 				}
 			}
@@ -389,7 +407,7 @@ func (h *Home) setupInput() {
 			return nil
 		case 'm':
 			if item, ok := h.selectedItem(); ok {
-				if !item.isGroup && h.onMove != nil {
+				if !item.isGroup && !isPending(item) && h.onMove != nil {
 					h.onMove(item)
 				}
 			}
