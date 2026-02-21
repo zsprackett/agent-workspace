@@ -76,6 +76,10 @@ func (m *Monitor) refresh() {
 
 	changed := false
 	for _, s := range sessions {
+		// Skip sessions that are being created or deleted - they have no tmux session yet.
+		if s.Status == db.StatusCreating || s.Status == db.StatusDeleting {
+			continue
+		}
 		if s.TmuxSession == "" {
 			continue
 		}
