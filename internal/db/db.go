@@ -266,6 +266,40 @@ func (d *DB) LoadSessionsByGroupPath(groupPath string) ([]*Session, error) {
 	return sessions, rows.Err()
 }
 
+func (d *DB) LoadSessionsByStatus(statuses ...SessionStatus) ([]*Session, error) {
+	if len(statuses) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]string, len(statuses))
+	args := make([]any, len(statuses))
+	for i, s := range statuses {
+		placeholders[i] = "?"
+		args[i] = string(s)
+	}
+	query := fmt.Sprintf(`
+		SELECT id, title, project_path, group_path, sort_order,
+			command, tool, status, tmux_session,
+			created_at, last_accessed,
+			parent_session_id, worktree_path, worktree_repo, worktree_branch,
+			acknowledged, repo_url, has_uncommitted, notes
+		FROM sessions WHERE status IN (%s) ORDER BY sort_order`,
+		strings.Join(placeholders, ","))
+	rows, err := d.sql.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sessions []*Session
+	for rows.Next() {
+		s, err := scanSession(rows)
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, s)
+	}
+	return sessions, rows.Err()
+}
+
 func (d *DB) DeleteSession(id string) error {
 	_, err := d.sql.Exec("DELETE FROM sessions WHERE id = ?", id)
 	return err

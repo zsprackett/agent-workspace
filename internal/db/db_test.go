@@ -324,3 +324,31 @@ func TestRepoURLRoundTrip(t *testing.T) {
 		t.Errorf("repo_url: got %q want %q", got.RepoURL, "https://github.com/owner/myrepo")
 	}
 }
+
+func TestLoadSessionsByStatus(t *testing.T) {
+	store, _ := db.Open(":memory:")
+	defer store.Close()
+	store.Migrate()
+
+	now := time.Now().Truncate(time.Millisecond)
+	sessions := []*db.Session{
+		{ID: "a", Title: "alpha", GroupPath: "my-sessions", Status: db.StatusCreating, Tool: db.ToolClaude, CreatedAt: now, LastAccessed: now},
+		{ID: "b", Title: "beta", GroupPath: "my-sessions", Status: db.StatusRunning, Tool: db.ToolClaude, CreatedAt: now, LastAccessed: now},
+		{ID: "c", Title: "gamma", GroupPath: "my-sessions", Status: db.StatusDeleting, Tool: db.ToolClaude, CreatedAt: now, LastAccessed: now},
+	}
+	for _, s := range sessions {
+		store.SaveSession(s)
+	}
+
+	got, err := store.LoadSessionsByStatus(db.StatusCreating, db.StatusDeleting)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 sessions, got %d", len(got))
+	}
+	ids := map[string]bool{got[0].ID: true, got[1].ID: true}
+	if !ids["a"] || !ids["c"] {
+		t.Errorf("expected sessions a and c, got %v", ids)
+	}
+}
