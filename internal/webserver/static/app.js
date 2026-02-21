@@ -61,6 +61,7 @@ const STATUS_ICONS = {
 
 let state = { sessions: [], groups: [] };
 let expandedSessions = new Set();
+let expandedTerminals = new Set();
 let sseRetryDelay = 1000;
 // Track open create-forms per group path
 let openCreateForms = new Set();
@@ -320,9 +321,44 @@ function render() {
         actions.appendChild(mkBtn('Delete', true, () => {
           if (confirm(`Delete session "${s.Title}"?`)) {
             expandedSessions.delete(s.ID);
+            expandedTerminals.delete(s.ID);
             apiAction(`/api/sessions/${s.ID}`, 'DELETE');
           }
         }));
+
+        // Git / terminal actions (only for sessions with a git working directory)
+        if (s.ProjectPath || s.WorktreePath) {
+          const token = getAccessToken();
+          actions.appendChild(mkBtn('Git Status', false, () => {
+            window.open(`/api/sessions/${s.ID}/git/status?token=${encodeURIComponent(token)}`, '_blank');
+          }));
+          actions.appendChild(mkBtn('Git Diff', false, () => {
+            window.open(`/api/sessions/${s.ID}/git/diff?token=${encodeURIComponent(token)}`, '_blank');
+          }));
+          actions.appendChild(mkBtn('Open PR', false, async () => {
+            const res = await authFetch(`/api/sessions/${s.ID}/pr-url`);
+            if (!res || !res.ok) {
+              alert('No open PR found for this branch.');
+              return;
+            }
+            const { url } = await res.json();
+            window.open(url, '_blank');
+          }));
+        }
+
+        if (s.TmuxSession) {
+          const isTermOpen = expandedTerminals.has(s.ID);
+          actions.appendChild(mkBtn(isTermOpen ? 'Hide Terminal' : 'Terminal', false, () => {
+            if (expandedTerminals.has(s.ID)) {
+              authFetch(`/api/sessions/${s.ID}/ttyd`, { method: 'DELETE' }).catch(() => {});
+              expandedTerminals.delete(s.ID);
+            } else {
+              expandedTerminals.add(s.ID);
+            }
+            render();
+          }));
+        }
+
         detail.appendChild(actions);
 
         // Notes
@@ -343,7 +379,7 @@ function render() {
         detail.appendChild(saveBtn);
 
         // Terminal iframe -- populated after DOM append below.
-        if (s.TmuxSession) {
+        if (s.TmuxSession && expandedTerminals.has(s.ID)) {
           const termContainer = document.createElement('div');
           termContainer.className = 'terminal-container';
           detail.appendChild(termContainer);
@@ -356,6 +392,7 @@ function render() {
         if (expandedSessions.has(s.ID)) {
           authFetch(`/api/sessions/${s.ID}/ttyd`, { method: 'DELETE' }).catch(() => {});
           expandedSessions.delete(s.ID);
+          expandedTerminals.delete(s.ID);
         } else {
           expandedSessions.add(s.ID);
         }
@@ -366,7 +403,7 @@ function render() {
       list.appendChild(detail);
 
       // Spawn ttyd and embed it in an iframe.
-      if (expandedSessions.has(s.ID) && s.TmuxSession) {
+      if (expandedSessions.has(s.ID) && expandedTerminals.has(s.ID) && s.TmuxSession) {
         const termContainer = detail.querySelector('.terminal-container');
         if (termContainer) {
           if (savedIframes[s.ID]) {
