@@ -123,6 +123,18 @@ func (a *App) Run() error {
 		fmt.Fprintf(os.Stderr, "warning: webserver: %v\n", err)
 	}
 
+	// Clean up sessions left in creating/deleting state from a previous crash.
+	if stale, err := a.store.LoadSessionsByStatus(db.StatusCreating, db.StatusDeleting); err == nil && len(stale) > 0 {
+		for _, s := range stale {
+			if s.Status == db.StatusDeleting && s.WorktreePath != "" && s.WorktreeRepo != "" {
+				// Best-effort force removal; ignore error.
+				_ = git.RemoveWorktree(s.WorktreeRepo, s.WorktreePath, true)
+			}
+			_ = a.store.DeleteSession(s.ID)
+		}
+		_ = a.store.Touch()
+	}
+
 	a.refreshHome()
 	a.mon.Start()
 	defer a.mon.Stop()
