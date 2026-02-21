@@ -9,7 +9,9 @@ const (
 	StatusWaiting SessionStatus = "waiting"
 	StatusIdle    SessionStatus = "idle"
 	StatusStopped SessionStatus = "stopped"
-	StatusError   SessionStatus = "error"
+	StatusError    SessionStatus = "error"
+	StatusCreating SessionStatus = "creating"
+	StatusDeleting SessionStatus = "deleting"
 )
 
 type Tool string

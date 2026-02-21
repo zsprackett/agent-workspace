@@ -38,6 +38,10 @@ func StatusIcon(status string) (string, tcell.Color) {
 		return IconError, ColorError
 	case "stopped":
 		return IconStopped, ColorTextMuted
+	case "creating":
+		return "⟳", ColorAccent
+	case "deleting":
+		return "⟳", ColorWarning
 	default:
 		return IconIdle, ColorTextMuted
 	}
