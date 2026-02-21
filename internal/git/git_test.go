@@ -37,6 +37,8 @@ func TestSanitizeBranchName(t *testing.T) {
 		{"my feature", "my-feature"},
 		{"has..dots", "has-dots"},
 		{"--leading-dashes--", "leading-dashes"},
+		{"origin/main", "origin-main"},
+		{"feature/my-thing", "feature-my-thing"},
 	}
 	for _, c := range cases {
 		got := git.SanitizeBranchName(c.input)
