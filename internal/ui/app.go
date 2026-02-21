@@ -403,33 +403,75 @@ func (a *App) onDelete(item listItem) {
 		a.refreshHome()
 	} else if item.session != nil {
 		doDelete := func() {
-			// Kill the tmux session first so the tool releases any file locks
-			// before we attempt worktree removal.
-			if item.session.TmuxSession != "" {
-				tmux.KillSession(item.session.TmuxSession)
+			s := item.session
+
+			// Kill the tmux session synchronously (fast) before any async work.
+			if s.TmuxSession != "" {
+				tmux.KillSession(s.TmuxSession)
 			}
-			if item.session.WorktreePath != "" && item.session.WorktreeRepo != "" {
-				if err := git.RemoveWorktree(item.session.WorktreeRepo, item.session.WorktreePath, false); err != nil {
+
+			// Sessions without a worktree have no slow git work; delete synchronously.
+			if s.WorktreePath == "" || s.WorktreeRepo == "" {
+				a.mgr.Delete(s.ID)
+				a.refreshHome()
+				return
+			}
+
+			prevStatus := s.Status
+
+			// Mark as deleting so the UI shows "deleting..." immediately.
+			_ = a.store.WriteStatus(s.ID, db.StatusDeleting, s.Tool)
+			_ = a.store.InsertSessionEvent(s.ID, "deleting", "")
+			a.store.Touch()
+			a.refreshHome()
+
+			finishDelete := func() {
+				_ = a.store.DeleteSession(s.ID)
+				_ = a.store.InsertSessionEvent(s.ID, "deleted", "")
+				_ = a.store.Touch()
+				a.refreshHome()
+			}
+
+			restoreStatus := func(errMsg string) {
+				_ = a.store.WriteStatus(s.ID, prevStatus, s.Tool)
+				a.store.Touch()
+				a.refreshHome()
+				if errMsg != "" {
+					a.showError(errMsg)
+				}
+			}
+
+			go func() {
+				err := git.RemoveWorktree(s.WorktreeRepo, s.WorktreePath, false)
+				if err == nil {
+					a.tapp.QueueUpdateDraw(finishDelete)
+					return
+				}
+
+				// Normal removal failed; offer force delete.
+				a.tapp.QueueUpdateDraw(func() {
 					modal := tview.NewModal().
 						SetText(fmt.Sprintf("Could not remove worktree:\n\n%v\n\nForce delete (discards uncommitted changes)?", err)).
 						AddButtons([]string{"Force Delete", "Cancel"}).
 						SetDoneFunc(func(_ int, label string) {
 							a.closeDialog("worktree-error")
-							if label == "Force Delete" {
-								if err := git.RemoveWorktree(item.session.WorktreeRepo, item.session.WorktreePath, true); err != nil {
-									a.showError(fmt.Sprintf("Force delete failed: %v", err))
+							if label != "Force Delete" {
+								restoreStatus("")
+								return
+							}
+							go func() {
+								if err2 := git.RemoveWorktree(s.WorktreeRepo, s.WorktreePath, true); err2 != nil {
+									a.tapp.QueueUpdateDraw(func() {
+										restoreStatus(fmt.Sprintf("Force delete failed: %v", err2))
+									})
 									return
 								}
-								a.mgr.Delete(item.session.ID)
-								a.refreshHome()
-							}
+								a.tapp.QueueUpdateDraw(finishDelete)
+							}()
 						})
 					a.pages.AddPage("worktree-error", modal, true, true)
-					return
-				}
-			}
-			a.mgr.Delete(item.session.ID)
-			a.refreshHome()
+				})
+			}()
 		}
 		s := item.session
 		if s.TmuxSession != "" && s.Status != db.StatusStopped {
