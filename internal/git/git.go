@@ -37,7 +37,7 @@ func ValidateBranchName(name string) error {
 func SanitizeBranchName(name string) string {
 	r := strings.NewReplacer(
 		" ", "-", "..", "-", "~", "-", "^", "-",
-		":", "-", "?", "-", "*", "-", "[", "-", "\\", "-",
+		":", "-", "?", "-", "*", "-", "[", "-", "\\", "-", "/", "-",
 	)
 	s := r.Replace(name)
 	for strings.HasPrefix(s, ".") {
@@ -203,6 +203,17 @@ func WorktreePath(baseDir, host, owner, repo, branch string) string {
 	return filepath.Join(baseDir, host, owner, repo, branch)
 }
 
+// ensureRemoteTrackingRefs adds the refs/remotes/origin/* fetch refspec to a bare
+// repo if it is not already present. This lets worktrees see remote tracking refs
+// (refs/remotes/origin/main, etc.) so upstream tracking and git status work correctly.
+func ensureRemoteTrackingRefs(repoDir string) {
+	out, _ := exec.Command("git", "-C", repoDir, "config", "--get-all", "remote.origin.fetch").Output()
+	if !strings.Contains(string(out), "refs/remotes/origin/") {
+		exec.Command("git", "-C", repoDir, "config", "--add", "remote.origin.fetch",
+			"+refs/heads/*:refs/remotes/origin/*").Run()
+	}
+}
+
 // CloneBare clones a remote URL as a bare repo to destPath.
 // No-ops if destPath already exists.
 func CloneBare(remoteURL, destPath string) error {
@@ -212,6 +223,7 @@ func CloneBare(remoteURL, destPath string) error {
 	if out, err := exec.Command("git", "clone", "--bare", remoteURL, destPath).CombinedOutput(); err != nil {
 		return fmt.Errorf("clone bare: %s", out)
 	}
+	ensureRemoteTrackingRefs(destPath)
 	return nil
 }
 
@@ -225,7 +237,10 @@ func IsBareRepo(path string) bool {
 }
 
 // FetchBare runs "git fetch --prune" on a bare repository at repoDir.
+// It also ensures the remote tracking refspec is configured so that
+// refs/remotes/origin/* refs are populated for worktree upstream tracking.
 func FetchBare(repoDir string) error {
+	ensureRemoteTrackingRefs(repoDir)
 	out, err := exec.Command("git", "-C", repoDir, "fetch", "--prune").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("fetch %s: %s", repoDir, out)
