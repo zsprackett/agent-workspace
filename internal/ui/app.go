@@ -12,6 +12,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/google/uuid"
 	"github.com/rivo/tview"
+	"github.com/zsprackett/agent-workspace/internal/claudeusage"
 	"github.com/zsprackett/agent-workspace/internal/config"
 	"github.com/zsprackett/agent-workspace/internal/db"
 	"github.com/zsprackett/agent-workspace/internal/git"
@@ -21,21 +22,23 @@ import (
 	"github.com/zsprackett/agent-workspace/internal/syncer"
 	"github.com/zsprackett/agent-workspace/internal/tmux"
 	"github.com/zsprackett/agent-workspace/internal/ui/dialogs"
+	"github.com/zsprackett/agent-workspace/internal/usagepoller"
 	"github.com/zsprackett/agent-workspace/internal/webserver"
 )
 
 type App struct {
-	tapp   *tview.Application
-	pages  *tview.Pages
-	home   *Home
-	store  *db.DB
-	mgr    *session.Manager
-	mon    *monitor.Monitor
-	syn    *syncer.Syncer
-	cfg    config.Config
-	groups []*db.Group
-	web    *webserver.Server
-	logger *slog.Logger
+	tapp    *tview.Application
+	pages   *tview.Pages
+	home    *Home
+	store   *db.DB
+	mgr     *session.Manager
+	mon     *monitor.Monitor
+	syn     *syncer.Syncer
+	poller  *usagepoller.Poller
+	cfg     config.Config
+	groups  []*db.Group
+	web     *webserver.Server
+	logger  *slog.Logger
 }
 
 func NewApp(store *db.DB, cfg config.Config, logger *slog.Logger) *App {
@@ -80,6 +83,7 @@ func NewApp(store *db.DB, cfg config.Config, logger *slog.Logger) *App {
 	}, notifier, a.web, logger)
 
 	a.syn = syncer.New(store, cfg.ReposDir, logger)
+	a.poller = usagepoller.New(store, 10*time.Minute, logger)
 
 	a.pages.AddPage("home", a.home, true, true)
 	a.tapp.SetRoot(a.pages, true).EnableMouse(false)
@@ -101,6 +105,7 @@ func NewApp(store *db.DB, cfg config.Config, logger *slog.Logger) *App {
 		a.onMove,
 		a.onAttach,
 		a.onNotes,
+		a.onUsage,
 		func() { a.tapp.Stop() },
 	)
 
@@ -141,6 +146,9 @@ func (a *App) Run() error {
 
 	a.syn.Start()
 	defer a.syn.Stop()
+
+	a.poller.Start()
+	defer a.poller.Stop()
 
 	return a.tapp.Run()
 }
@@ -650,4 +658,51 @@ func (a *App) showError(msg string) {
 			a.closeDialog("error")
 		})
 	a.pages.AddPage("error", modal, true, true)
+}
+
+func (a *App) onUsage() {
+	var dialog *dialogs.UsageDialog
+	dialog = dialogs.NewUsageDialog(a.store, a.tapp,
+		func() { a.closeDialog("usage") },
+		func() {
+			usage, err := claudeusage.FetchUsage()
+			if err != nil {
+				a.tapp.QueueUpdateDraw(func() {
+					a.closeDialog("usage")
+					a.showError(fmt.Sprintf("Usage fetch failed: %v", err))
+				})
+				return
+			}
+			snap := db.UsageSnapshot{
+				TsMs:              time.Now().UnixMilli(),
+				FiveHourUtil:      usage.FiveHour.Utilization,
+				FiveHourResetsAt:  parseResetsAt(usage.FiveHour.ResetsAt),
+				SevenDayUtil:      usage.SevenDay.Utilization,
+				SevenDayResetsAt:  parseResetsAt(usage.SevenDay.ResetsAt),
+				ExtraEnabled:      usage.ExtraUsage.IsEnabled,
+				ExtraMonthlyLimit: usage.ExtraUsage.MonthlyLimit,
+				ExtraUsedCredits:  usage.ExtraUsage.UsedCredits,
+				ExtraUtilization:  usage.ExtraUsage.Utilization,
+			}
+			_ = a.store.InsertUsageSnapshot(snap)
+			a.tapp.QueueUpdateDraw(func() {
+				dialog.Reload()
+			})
+		},
+	)
+	a.showDialog("usage", dialog, 60, 24)
+}
+
+func parseResetsAt(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		t, err = time.Parse(time.RFC3339Nano, s)
+		if err != nil {
+			return 0
+		}
+	}
+	return t.UnixMilli()
 }

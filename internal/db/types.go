@@ -106,3 +106,16 @@ type SessionEvent struct {
 	EventType string
 	Detail    string
 }
+
+type UsageSnapshot struct {
+	ID                int64
+	TsMs              int64
+	FiveHourUtil      float64
+	FiveHourResetsAt  int64 // Unix ms
+	SevenDayUtil      float64
+	SevenDayResetsAt  int64 // Unix ms
+	ExtraEnabled      bool
+	ExtraMonthlyLimit float64 // cents
+	ExtraUsedCredits  float64 // cents
+	ExtraUtilization  float64
+}

@@ -153,3 +153,65 @@ header h1 { font-size: 14px; font-weight: 600; }
   justify-content: space-between;
   padding: 8px 16px 4px;
 }
+
+/* Usage widget in header */
+.usage-widget {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.usage-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.usage-label {
+  color: var(--muted);
+  width: 18px;
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.usage-bar {
+  width: 72px;
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.usage-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.6s ease;
+}
+
+.usage-fill.green  { background: var(--running); }
+.usage-fill.yellow { background: var(--waiting); }
+.usage-fill.red    { background: var(--error); }
+
+.usage-pct {
+  min-width: 32px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-pct.warn {
+  color: var(--error);
+  animation: usage-pulse 2s ease-in-out infinite;
+}
+
+.usage-reset { color: var(--muted); }
+
+.usage-empty { font-size: 10px; color: var(--muted); }
+.usage-empty a { color: var(--muted); }
+
+@keyframes usage-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
