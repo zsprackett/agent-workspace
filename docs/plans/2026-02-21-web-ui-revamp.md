@@ -1,3 +1,425 @@
+# Web UI Revamp Implementation Plan
+
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+
+**Goal:** Replace the inline-expand session list with a split-pane mission-control layout: fixed 260px sidebar on the left, full-height detail panel on the right, with tabbed content (Terminal, Git, Notes, Log). Mobile: full-screen sidebar slides away when a session is selected, detail panel slides in with a back button.
+
+**Architecture:** Three-file frontend rewrite — `index.html` (new DOM structure), `style.css` (full replacement), `app.js` (new state model + split-pane rendering). No backend changes. Key state change: `expandedSessions` Set → single `selectedSessionID` string. Detail panel rebuilt only when selected session changes; status-only updates patch the DOM in-place to avoid destroying the terminal iframe or losing textarea focus.
+
+**Tech Stack:** Vanilla JS/HTML/CSS, JetBrains Mono via Google Fonts, no new dependencies.
+
+---
+
+### Task 1: Rewrite index.html
+
+**Files:**
+- Modify: `internal/webserver/static/index.html`
+
+**Step 1: Replace the file with the new structure**
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#060a0f">
+  <title>agent-workspace</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <div class="header-left">
+        <button class="back-btn" id="back-btn" aria-label="Back">←</button>
+        <span class="logo">agent-workspace</span>
+      </div>
+      <div class="header-right">
+        <div id="connection-status" class="conn-dot" title="SSE connection"></div>
+        <button id="logout-btn" class="logout-btn">logout</button>
+      </div>
+    </header>
+    <div class="layout">
+      <aside class="sidebar" id="sidebar">
+        <div id="session-list"></div>
+      </aside>
+      <main class="detail-panel" id="detail-panel">
+        <div class="detail-empty" id="detail-empty">
+          <span class="detail-empty-text">select a session</span>
+        </div>
+        <div class="detail-content" id="detail-content"></div>
+      </main>
+    </div>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>
+```
+
+**Step 2: Verify it builds**
+
+```bash
+make build
+```
+
+Expected: compiles with no errors.
+
+**Step 3: Commit**
+
+```bash
+git add internal/webserver/static/index.html
+git commit -m "feat(ui): new split-pane HTML structure"
+```
+
+---
+
+### Task 2: Rewrite style.css
+
+**Files:**
+- Modify: `internal/webserver/static/style.css`
+
+**Step 1: Replace the file completely**
+
+```css
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #060a0f;
+  --sidebar:   #0b1018;
+  --surface:   #111820;
+  --border:    #1c2530;
+  --border-hi: #2a3848;
+  --text:      #c8d8e8;
+  --muted:     #4e6070;
+  --accent:    #00d4ff;
+  --running:   #00e676;
+  --waiting:   #ffcc02;
+  --idle:      #3d5166;
+  --stopped:   #2a3848;
+  --error:     #ff4560;
+}
+
+body {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--text);
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* ── App shell ─────────────────────────────── */
+.app { display: flex; flex-direction: column; height: 100dvh; }
+
+/* ── Header ────────────────────────────────── */
+.app-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 16px; height: 44px;
+  background: var(--bg); border-bottom: 1px solid var(--border);
+  flex-shrink: 0; z-index: 20;
+}
+.header-left  { display: flex; align-items: center; gap: 10px; }
+.header-right { display: flex; align-items: center; gap: 12px; }
+.logo { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; }
+
+.back-btn {
+  display: none; background: none; border: none; color: var(--muted);
+  cursor: pointer; font-family: inherit; font-size: 18px;
+  padding: 0 4px; line-height: 1; border-radius: 3px;
+}
+.back-btn:hover { color: var(--text); }
+
+.conn-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--stopped); transition: background 0.3s;
+}
+.conn-dot.connected { background: var(--running); }
+
+.logout-btn {
+  background: none; border: none; color: var(--muted);
+  cursor: pointer; font-family: inherit; font-size: 12px; padding: 0;
+}
+.logout-btn:hover { color: var(--text); }
+
+/* ── Layout ────────────────────────────────── */
+.layout { display: flex; flex: 1; overflow: hidden; }
+
+/* ── Sidebar ───────────────────────────────── */
+.sidebar {
+  width: 260px; flex-shrink: 0;
+  background: var(--sidebar); border-right: 1px solid var(--border);
+  overflow-y: auto; overflow-x: hidden;
+}
+
+.group-header-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 14px 6px;
+}
+.group-label {
+  font-size: 10px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.group-add-btn {
+  background: none; border: none; color: var(--muted);
+  cursor: pointer; font-family: inherit; font-size: 16px;
+  line-height: 1; padding: 2px 5px; border-radius: 3px;
+}
+.group-add-btn:hover { color: var(--text); background: var(--surface); }
+
+.session-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px 8px 12px; cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: background 0.1s;
+}
+.session-row:hover { background: rgba(255,255,255,0.03); }
+.session-row.active { background: var(--surface); }
+.session-row.active.status-running { border-left-color: var(--running); }
+.session-row.active.status-waiting { border-left-color: var(--waiting); }
+.session-row.active.status-idle    { border-left-color: var(--idle); }
+.session-row.active.status-stopped { border-left-color: var(--stopped); }
+.session-row.active.status-error   { border-left-color: var(--error); }
+
+.session-row-title {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; font-weight: 500;
+}
+.session-row-tool { font-size: 10px; color: var(--muted); flex-shrink: 0; }
+
+/* Status dots */
+.status-dot { font-size: 9px; flex-shrink: 0; line-height: 1; }
+.status-dot.running { color: var(--running); filter: drop-shadow(0 0 2px var(--running)); }
+.status-dot.waiting { color: var(--waiting); animation: pulse-dot 2s ease-in-out infinite; }
+.status-dot.idle    { color: var(--idle); }
+.status-dot.stopped { color: var(--stopped); }
+.status-dot.error   { color: var(--error); }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.35; }
+}
+
+/* Create form */
+.create-form {
+  display: none; padding: 8px 12px 12px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.create-form.open { display: block; }
+.form-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.form-label {
+  font-size: 10px; color: var(--muted); width: 36px;
+  flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.05em;
+}
+.form-input, .form-select {
+  flex: 1; background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 3px;
+  padding: 4px 7px; font-family: inherit; font-size: 11px;
+}
+.form-input:focus, .form-select:focus { outline: none; border-color: var(--accent); }
+.form-submit {
+  margin-top: 4px; font-size: 11px; padding: 4px 10px;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 3px;
+  cursor: pointer; font-family: inherit;
+}
+.form-submit:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Detail panel ──────────────────────────── */
+.detail-panel {
+  flex: 1; display: flex; flex-direction: column;
+  overflow: hidden; background: var(--bg);
+}
+.detail-empty {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+}
+.detail-empty-text { font-size: 11px; color: var(--muted); letter-spacing: 0.06em; }
+.detail-content { flex: 1; display: none; flex-direction: column; overflow: hidden; }
+
+/* Detail header */
+.detail-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 16px; border-bottom: 1px solid var(--border);
+  flex-shrink: 0; transition: background 0.4s; gap: 12px;
+}
+.detail-header.tint-running { background: rgba(0,230,118,0.04); }
+.detail-header.tint-waiting { background: rgba(255,204,2,0.05); }
+.detail-header.tint-error   { background: rgba(255,69,96,0.05); }
+
+.detail-title-group { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.detail-session-name {
+  font-size: 14px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.detail-status-badge {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em;
+  padding: 2px 6px; border-radius: 3px; border: 1px solid; flex-shrink: 0;
+}
+.detail-status-badge.running { color: var(--running); border-color: var(--running); }
+.detail-status-badge.waiting {
+  color: var(--waiting); border-color: var(--waiting);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+.detail-status-badge.idle    { color: var(--idle);    border-color: var(--idle); }
+.detail-status-badge.stopped { color: var(--stopped); border-color: var(--stopped); }
+.detail-status-badge.error   { color: var(--error);   border-color: var(--error); }
+
+.detail-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+.action-btn {
+  font-size: 11px; padding: 3px 8px;
+  background: none; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 3px;
+  cursor: pointer; font-family: inherit;
+  transition: color 0.1s, border-color 0.1s;
+}
+.action-btn:hover { color: var(--text); border-color: var(--border-hi); }
+.action-btn.danger:hover { color: var(--error); border-color: var(--error); }
+
+/* Tab bar */
+.tab-bar {
+  display: flex; border-bottom: 1px solid var(--border);
+  padding: 0 16px; flex-shrink: 0; background: var(--surface);
+  overflow-x: auto;
+}
+.tab-btn {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; padding: 9px 12px;
+  background: none; border: none; border-bottom: 2px solid transparent;
+  color: var(--muted); cursor: pointer; font-family: inherit;
+  margin-bottom: -1px; white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* Tab content */
+.tab-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+
+/* Terminal tab */
+.terminal-container { flex: 1; width: 100%; display: flex; flex-direction: column; }
+.terminal-iframe { flex: 1; width: 100%; border: none; display: block; }
+
+/* Git tab */
+.git-panel { padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+.git-btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.git-btn {
+  font-size: 12px; padding: 6px 14px;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 3px;
+  cursor: pointer; font-family: inherit;
+  transition: border-color 0.1s, color 0.1s;
+}
+.git-btn:hover { border-color: var(--accent); color: var(--accent); }
+.dirty-notice { font-size: 11px; color: var(--waiting); }
+
+/* Notes tab */
+.notes-panel { display: flex; flex-direction: column; flex: 1; padding: 12px; gap: 8px; }
+.notes-area {
+  flex: 1; background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 10px; font-family: inherit; font-size: 13px; resize: none;
+}
+.notes-area:focus { outline: none; border-color: var(--accent); }
+.save-btn {
+  align-self: flex-start; font-size: 11px; padding: 4px 12px;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 3px;
+  cursor: pointer; font-family: inherit;
+}
+.save-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Log tab */
+.log-panel { padding: 12px 16px; overflow-y: auto; flex: 1; }
+.log-title {
+  font-size: 10px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px;
+}
+.log-entry {
+  display: flex; gap: 12px; font-size: 11px;
+  padding: 4px 0; border-bottom: 1px solid var(--border);
+}
+.log-ts { color: var(--muted); flex-shrink: 0; }
+.log-type { color: var(--text); }
+
+/* ── Login page ────────────────────────────── */
+.login-wrap {
+  display: flex; align-items: center; justify-content: center; min-height: 80dvh;
+}
+.login-box {
+  background: var(--surface); border: 1px solid var(--border);
+  padding: 32px; width: 320px; display: flex; flex-direction: column; gap: 16px;
+}
+.login-box h2 { font-size: 1rem; color: var(--text); }
+.login-box input {
+  width: 100%; padding: 8px; background: var(--bg);
+  border: 1px solid var(--border); color: var(--text);
+  font-family: inherit; font-size: 14px;
+}
+.login-box input:focus { outline: none; border-color: var(--accent); }
+.login-box button {
+  padding: 8px; background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); font-family: inherit; font-size: 14px; cursor: pointer;
+}
+.login-box button:hover { border-color: var(--accent); color: var(--accent); }
+.error { color: var(--error); font-size: 13px; min-height: 1em; }
+
+/* ── Mobile ────────────────────────────────── */
+@media (max-width: 767px) {
+  body { overflow: hidden; }
+  .back-btn { display: block; }
+  .layout { position: relative; }
+
+  .sidebar {
+    width: 100%; position: absolute; inset: 0;
+    transform: translateX(0);
+    transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
+    z-index: 10;
+  }
+  .sidebar.offscreen { transform: translateX(-100%); }
+
+  .detail-panel {
+    position: absolute; inset: 0;
+    transform: translateX(100%);
+    transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
+    z-index: 10; background: var(--bg);
+  }
+  .detail-panel.visible { transform: translateX(0); }
+}
+```
+
+**Step 2: Verify it builds**
+
+```bash
+make build
+```
+
+Expected: compiles with no errors.
+
+**Step 3: Commit**
+
+```bash
+git add internal/webserver/static/style.css
+git commit -m "feat(ui): new mission-control design system"
+```
+
+---
+
+### Task 3: Rewrite app.js
+
+**Files:**
+- Modify: `internal/webserver/static/app.js`
+
+This is a full replacement. The existing auth functions (`getAccessToken`, `refreshAccessToken`, `authFetch`, `logout`) are kept verbatim. Everything else is replaced.
+
+**Step 1: Replace app.js with the full new implementation**
+
+```js
 // --- Auth (unchanged) ---
 function getAccessToken() { return sessionStorage.getItem('access_token'); }
 function getRefreshToken() { return localStorage.getItem('refresh_token'); }
@@ -51,18 +473,6 @@ async function logout() {
   window.location.href = '/login';
 }
 
-// --- Diff coloring ---
-function colorDiffLines(text) {
-  return text.split('\n').map(line => {
-    const esc = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    if (line.startsWith('+++') || line.startsWith('---')) return `<span class="diff-hdr">${esc}</span>`;
-    if (line.startsWith('+')) return `<span class="diff-add">${esc}</span>`;
-    if (line.startsWith('-')) return `<span class="diff-del">${esc}</span>`;
-    if (line.startsWith('@@')) return `<span class="diff-hunk">${esc}</span>`;
-    return esc;
-  }).join('\n');
-}
-
 // --- State ---
 const STATUS_ICONS = {
   running: { char: '●', cls: 'running' },
@@ -74,7 +484,7 @@ const STATUS_ICONS = {
 
 let state = { sessions: [], groups: [] };
 let selectedSessionID = null;   // replaces expandedSessions Set
-let tabState = {};              // { [sessionID]: 'terminal'|'git'|'notes'|'activity' }
+let tabState = {};              // { [sessionID]: 'terminal'|'git'|'notes'|'log' }
 let openCreateForms = new Set();
 let mobileShowDetail = false;
 let sseRetryDelay = 1000;
@@ -124,24 +534,6 @@ async function loadLogEntries(sessionID, container) {
     row.innerHTML = `<span class="log-ts">${formatTime(e.Ts)}</span><span class="log-type">${e.EventType}</span>`;
     container.appendChild(row);
   });
-}
-
-// --- Terminal scroll ---
-function scrollTerminal(dir) { // -1 = up, 1 = down
-  const iframe = savedIframes[selectedSessionID];
-  if (!iframe) return;
-  try {
-    const doc = iframe.contentDocument;
-    if (!doc) return;
-    const target = doc.querySelector('.xterm-viewport') || doc.querySelector('.xterm');
-    if (!target) return;
-    const rect = target.getBoundingClientRect();
-    target.dispatchEvent(new WheelEvent('wheel', {
-      deltaY: dir * 1200, deltaMode: 0, bubbles: true, cancelable: true,
-      clientX: rect.left + rect.width / 2,
-      clientY: rect.top + rect.height / 2,
-    }));
-  } catch (_) {}
 }
 
 // --- Session selection ---
@@ -251,87 +643,6 @@ function renderSidebar() {
   });
 }
 
-// --- Usage ---
-function usageColorClass(util) {
-  if (util >= 0.8) return 'red';
-  if (util >= 0.6) return 'yellow';
-  return 'green';
-}
-
-function formatUsageReset(tsMs) {
-  if (!tsMs) return '';
-  const ms = tsMs - Date.now();
-  if (ms <= 0) return '';
-  const mins = Math.floor(ms / 60000);
-  const hours = Math.floor(mins / 60);
-  const days = Math.floor(hours / 24);
-  if (days > 0) return `→ ${days}d`;
-  if (hours > 0) return `→ ${hours}h${String(mins % 60).padStart(2, '0')}m`;
-  return `→ ${mins}m`;
-}
-
-function buildUsageRow(label, util, resetsAtMs) {
-  const row = document.createElement('div');
-  row.className = 'usage-row';
-
-  const lbl = document.createElement('span');
-  lbl.className = 'usage-label';
-  lbl.textContent = label;
-
-  const bar = document.createElement('div');
-  bar.className = 'usage-bar';
-  const fill = document.createElement('div');
-  fill.className = `usage-fill ${usageColorClass(util)}`;
-  fill.style.width = `${Math.min(util, 1) * 100}%`;
-  bar.appendChild(fill);
-
-  const pct = document.createElement('span');
-  pct.className = 'usage-pct' + (util >= 0.8 ? ' warn' : '');
-  pct.textContent = `${Math.round(util * 100)}%`;
-
-  const reset = document.createElement('span');
-  reset.className = 'usage-reset';
-  reset.textContent = formatUsageReset(resetsAtMs);
-
-  row.appendChild(lbl);
-  row.appendChild(bar);
-  row.appendChild(pct);
-  row.appendChild(reset);
-  return row;
-}
-
-async function fetchUsage() {
-  const widget = document.getElementById('usage-widget');
-  if (!widget) return;
-  const res = await authFetch('/api/usage');
-  if (!res || !res.ok) return;
-  const data = await res.json();
-  renderUsage(data, widget);
-}
-
-function renderUsage(data, widget) {
-  widget.innerHTML = '';
-  if (!data || !data.latest) {
-    widget.innerHTML = '<span class="usage-empty">no usage data</span>';
-    return;
-  }
-  const { latest } = data;
-  const fiveHour = latest.FiveHourUtil / 100;
-  const sevenDay = latest.SevenDayUtil / 100;
-
-  widget.appendChild(buildUsageRow('5h', fiveHour, latest.FiveHourResetsAt));
-  widget.appendChild(buildUsageRow('7d', sevenDay, latest.SevenDayResetsAt));
-
-  if (latest.ExtraEnabled) {
-    const used = (latest.ExtraUsedCredits / 100).toFixed(2);
-    const extraUtil = latest.ExtraUtilization / 100;
-    const row = buildUsageRow('$', extraUtil, 0);
-    const pct = row.querySelector('.usage-pct');
-    if (pct) pct.textContent = `$${used}`;
-    widget.appendChild(row);
-  }
-}
-
 // --- Create form (inline in sidebar) ---
 function buildCreateForm(groupPath) {
   const form = document.createElement('div');
@@ -425,8 +736,8 @@ function rebuildDetail() {
   const tabBar = document.createElement('div');
   tabBar.className = 'tab-bar';
   const tabs = s.TmuxSession
-    ? ['terminal', 'git', 'notes', 'activity']
-    : ['git', 'notes', 'activity'];
+    ? ['terminal', 'git', 'notes', 'log']
+    : ['git', 'notes', 'log'];
   tabs.forEach(t => {
     const btn = document.createElement('button');
     btn.className = 'tab-btn' + (t === tab ? ' active' : '');
@@ -513,17 +824,6 @@ function renderTabContent(s, tab, container) {
       termContainer.appendChild(iframe);
       savedIframes[s.ID] = iframe;
     }
-    const scrollBtns = document.createElement('div');
-    scrollBtns.className = 'terminal-scroll-btns';
-    [['▲', -1, 'Scroll up'], ['▼', 1, 'Scroll down']].forEach(([label, dir, title]) => {
-      const btn = document.createElement('button');
-      btn.className = 'terminal-scroll-btn';
-      btn.textContent = label;
-      btn.title = title;
-      btn.onclick = (e) => { e.stopPropagation(); scrollTerminal(dir); };
-      scrollBtns.appendChild(btn);
-    });
-    termContainer.appendChild(scrollBtns);
     container.appendChild(termContainer);
     return;
   }
@@ -531,93 +831,38 @@ function renderTabContent(s, tab, container) {
   if (tab === 'git') {
     const panel = document.createElement('div');
     panel.className = 'git-panel';
-
-    // Action row: dirty notice + Refresh + View PR (if PR exists)
-    const actionRow = document.createElement('div');
-    actionRow.className = 'git-action-row';
-
     if (s.HasUncommitted) {
       const notice = document.createElement('div');
       notice.className = 'dirty-notice';
       notice.textContent = '● uncommitted changes';
-      actionRow.appendChild(notice);
+      panel.appendChild(notice);
     }
-
-    const refreshBtn = document.createElement('button');
-    refreshBtn.className = 'git-btn';
-    refreshBtn.textContent = '↻ Refresh';
-
-    actionRow.appendChild(refreshBtn);
-    panel.appendChild(actionRow);
-
     if (s.ProjectPath || s.WorktreePath) {
-      // Status section
-      const statusLabel = document.createElement('div');
-      statusLabel.className = 'git-section-label';
-      statusLabel.textContent = 'Status';
-      panel.appendChild(statusLabel);
-
-      const statusPre = document.createElement('pre');
-      statusPre.className = 'git-output';
-      statusPre.textContent = 'loading...';
-      panel.appendChild(statusPre);
-
-      // Diff section
-      const diffLabel = document.createElement('div');
-      diffLabel.className = 'git-section-label';
-      diffLabel.textContent = 'Diff';
-      panel.appendChild(diffLabel);
-
-      const diffPre = document.createElement('pre');
-      diffPre.className = 'git-output';
-      diffPre.textContent = 'loading...';
-      panel.appendChild(diffPre);
-
-      const loadGit = async () => {
-        statusPre.textContent = 'loading...';
-        diffPre.textContent = 'loading...';
-        const [statusRes, diffRes, prRes] = await Promise.all([
-          authFetch(`/api/sessions/${s.ID}/git/status/text`),
-          authFetch(`/api/sessions/${s.ID}/git/diff/text`),
-          authFetch(`/api/sessions/${s.ID}/pr-url`),
-        ]);
-        if (statusRes && statusRes.ok) {
-          const { output } = await statusRes.json();
-          statusPre.textContent = output || '(nothing to show)';
-        } else {
-          statusPre.textContent = '(error fetching status)';
-        }
-        if (diffRes && diffRes.ok) {
-          const { output } = await diffRes.json();
-          diffPre.innerHTML = output ? colorDiffLines(output) : '(no diff)';
-        } else {
-          diffPre.textContent = '(error fetching diff)';
-        }
-        // Show View PR button only if a PR exists.
-        const existingPrBtn = actionRow.querySelector('.pr-btn');
-        if (existingPrBtn) existingPrBtn.remove();
-        if (prRes && prRes.ok) {
-          const { url } = await prRes.json();
-          if (url) {
-            const prBtn = document.createElement('button');
-            prBtn.className = 'git-btn pr-btn';
-            prBtn.textContent = 'View PR';
-            prBtn.onclick = () => window.open(url, '_blank');
-            actionRow.appendChild(prBtn);
-          }
-        }
+      const token = getAccessToken();
+      const row = document.createElement('div');
+      row.className = 'git-btn-row';
+      const mkGitBtn = (label, onClick) => {
+        const btn = document.createElement('button');
+        btn.className = 'git-btn'; btn.textContent = label; btn.onclick = onClick;
+        return btn;
       };
-
-      refreshBtn.onclick = loadGit;
-      loadGit();
+      row.appendChild(mkGitBtn('Git Status', () =>
+        window.open(`/api/sessions/${s.ID}/git/status?token=${encodeURIComponent(token)}`, '_blank')));
+      row.appendChild(mkGitBtn('Git Diff', () =>
+        window.open(`/api/sessions/${s.ID}/git/diff?token=${encodeURIComponent(token)}`, '_blank')));
+      row.appendChild(mkGitBtn('Open PR', async () => {
+        const res = await authFetch(`/api/sessions/${s.ID}/pr-url`);
+        if (!res || !res.ok) { alert('No open PR found for this branch.'); return; }
+        const { url } = await res.json();
+        window.open(url, '_blank');
+      }));
+      panel.appendChild(row);
     } else {
       const msg = document.createElement('div');
       msg.style.cssText = 'font-size:12px;color:var(--muted)';
       msg.textContent = 'No git working directory for this session.';
       panel.appendChild(msg);
-      refreshBtn.disabled = true;
     }
-
     container.appendChild(panel);
     return;
   }
@@ -639,7 +884,7 @@ function renderTabContent(s, tab, container) {
     return;
   }
 
-  if (tab === 'activity') {
+  if (tab === 'log') {
     const panel = document.createElement('div');
     panel.className = 'log-panel';
     const title = document.createElement('div');
@@ -736,6 +981,70 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   fetchSessions();
   connectSSE();
-  fetchUsage();
-  setInterval(fetchUsage, 5 * 60 * 1000);
 });
+```
+
+**Step 2: Verify it builds**
+
+```bash
+make build
+```
+
+Expected: compiles with no errors.
+
+**Step 3: Smoke test the UI**
+
+```bash
+./agent-workspace
+```
+
+Open the web UI. Verify:
+- Split-pane layout: sidebar on left, empty state on right ("select a session")
+- Clicking a session loads the detail panel with header, tab bar, and terminal (if applicable)
+- Status dot pulses for waiting sessions
+- Tab switching works: TERMINAL | GIT | NOTES | LOG
+- GIT tab shows Git Status / Git Diff / Open PR buttons for sessions with a path
+- Notes tab: type something, switch tabs, switch back — typed text is gone (expected: notes are rebuilt on selection change; this is fine)
+- Deleting a session clears the detail panel
+- Connection dot in header turns green
+
+**Step 4: Verify mobile layout**
+
+Resize browser to <768px width. Verify:
+- Sidebar fills the screen
+- Tapping a session slides the detail panel in
+- Back button (←) slides back to sidebar
+
+**Step 5: Commit**
+
+```bash
+git add internal/webserver/static/app.js
+git commit -m "feat(ui): split-pane layout with tabbed detail panel"
+```
+
+---
+
+### Task 4: Final build and install
+
+**Step 1: Run full test suite**
+
+```bash
+make test
+```
+
+Expected: all pass (no backend changes were made).
+
+**Step 2: Build and install**
+
+```bash
+make install
+```
+
+Expected: installs to `~/.local/bin/agent-workspace`.
+
+**Step 3: Commit (if any fixups needed)**
+
+```bash
+git add -p
+git commit -m "fix(ui): <describe any fixup>"
+```

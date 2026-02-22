@@ -209,7 +209,9 @@ func (h *Home) renderTable() {
 			default:
 				ageOrStatus = formatAge(s.LastAccessed)
 			}
-			text := fmt.Sprintf("   %s %s%-20s %s  %s", icon, dirtyMark, title, s.Tool, ageOrStatus)
+			r, g, b := color.RGB()
+			coloredIcon := fmt.Sprintf("[#%02x%02x%02x]%s[-]", r, g, b, icon)
+			text := fmt.Sprintf("   %s %s%-20s %s  %s", coloredIcon, dirtyMark, title, s.Tool, ageOrStatus)
 			cell := tview.NewTableCell(text).
 				SetTextColor(color).
 				SetBackgroundColor(ColorBackground).

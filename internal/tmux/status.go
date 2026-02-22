@@ -31,6 +31,14 @@ var claudeExitedPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)claude --resume`),
 }
 
+// claudePermissionPatterns matches Claude's permission dialog, which must
+// take priority over busy/spinner detection. A spinner from a running bash
+// tool can appear in the same screen area as the dialog.
+var claudePermissionPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)do you want to proceed`),
+	regexp.MustCompile(`(?i)tab to amend`),
+}
+
 var genericWaitingPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\? \(y\/n\)`),
 	regexp.MustCompile(`(?i)\[Y\/n\]`),
@@ -116,10 +124,20 @@ func ParseToolStatus(output, tool string) ToolStatus {
 		if matchAny(claudeExitedPatterns, last30) {
 			return s
 		}
+		// Permission dialogs take priority: a spinner from a concurrent bash tool
+		// can appear alongside the dialog and would otherwise make IsBusy=true.
+		if matchAny(claudePermissionPatterns, last30) {
+			s.IsWaiting = true
+			return s
+		}
 		s.IsBusy = matchAny(claudeBusyPatterns, last30) || hasSpinner(last10)
-		// If Claude isn't busy it's at its input prompt waiting for the next message.
-		// Explicit confirmation prompts are a subset of this - either way it's waiting.
-		s.IsWaiting = !s.IsBusy
+		// IsWaiting is intentionally NOT set to !IsBusy here. During autonomous
+		// inter-step gaps (tool just finished, next thinking phase not yet started),
+		// IsBusy is false but the process is not blocked on stdin - Claude is about
+		// to decide its next action. Setting IsWaiting=true in that case causes
+		// rapid running→waiting oscillations and spurious user-input notifications.
+		// The monitor's IsPaneWaitingForInput (wchan==ttyin) handles true
+		// waiting-for-user detection independently.
 	} else {
 		s.IsWaiting = matchAny(genericWaitingPatterns, last30)
 	}

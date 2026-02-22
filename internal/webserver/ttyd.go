@@ -64,6 +64,9 @@ func (m *ttydManager) spawn(sessionID, tmuxSession string) (int, error) {
 		return 0, err
 	}
 
+	// Enable mouse mode so scroll works in the web terminal.
+	exec.Command("tmux", "set-option", "-t", tmuxSession, "mouse", "on").Run()
+
 	cmd := exec.Command("ttyd",
 		"--port", fmt.Sprintf("%d", port),
 		"--once",

@@ -105,10 +105,10 @@ func (m *Monitor) refresh() {
 		switch {
 		case status.IsWaiting || isWaitingForInput:
 			newStatus = db.StatusWaiting
-		case status.HasError:
-			newStatus = db.StatusError
 		case status.IsBusy || isActive:
 			newStatus = db.StatusRunning
+		case status.HasError:
+			newStatus = db.StatusError
 		default:
 			newStatus = db.StatusIdle
 		}
