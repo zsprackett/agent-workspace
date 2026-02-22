@@ -502,6 +502,10 @@ function renderTabContent(s, tab, container) {
       container.innerHTML = '<div style="padding:20px;color:var(--muted);font-size:12px">No tmux session.</div>';
       return;
     }
+    if (s.Status === 'stopped' || s.Status === 'error') {
+      container.innerHTML = `<div style="padding:20px;color:var(--muted);font-size:12px">Session is ${s.Status}. Use <strong>Restart</strong> to resume access.</div>`;
+      return;
+    }
     const termContainer = document.createElement('div');
     termContainer.className = 'terminal-container';
     if (savedIframes[s.ID]) {
@@ -699,8 +703,20 @@ function connectSSE() {
           const dot = row.querySelector('.status-dot');
           if (dot) { dot.className = `status-dot ${icon.cls}`; dot.textContent = icon.char; }
         }
+        // If session stopped/errored, evict cached iframe so we don't hammer a dead session.
+        if (evt.status === 'stopped' || evt.status === 'error') {
+          authFetch(`/api/sessions/${evt.session_id}/ttyd`, { method: 'DELETE' }).catch(() => {});
+          delete savedIframes[evt.session_id];
+        }
         // If this is the selected session, update the detail header in-place too.
-        if (evt.session_id === selectedSessionID) updateDetailStatus();
+        if (evt.session_id === selectedSessionID) {
+          updateDetailStatus();
+          // Rebuild terminal tab if it's currently visible so the stopped message shows.
+          if (evt.status === 'stopped' || evt.status === 'error') {
+            const activeTab = document.querySelector('.tab-btn.active');
+            if (activeTab && activeTab.dataset.tab === 'terminal') rebuildDetail();
+          }
+        }
       } else {
         fetchSessions();
       }
