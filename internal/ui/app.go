@@ -74,6 +74,9 @@ func NewApp(store *db.DB, cfg config.Config, logger *slog.Logger) *App {
 			JWTSecret:       cfg.Webserver.Auth.JWTSecret,
 			RefreshTokenTTL: cfg.Webserver.Auth.RefreshTokenTTL,
 		},
+		ReposDir:          cfg.ReposDir,
+		WorktreesDir:      cfg.WorktreesDir,
+		DefaultBaseBranch: cfg.Worktree.DefaultBaseBranch,
 	})
 
 	a.mon = monitor.New(store, func() {

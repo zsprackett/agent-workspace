@@ -2,6 +2,7 @@ package webserver
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
@@ -11,12 +12,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/zsprackett/agent-workspace/internal/db"
 	"github.com/zsprackett/agent-workspace/internal/events"
+	"github.com/zsprackett/agent-workspace/internal/git"
 	"github.com/zsprackett/agent-workspace/internal/session"
+	"github.com/zsprackett/agent-workspace/internal/tmux"
 )
 
 type TLSConfig struct {
@@ -33,11 +37,14 @@ type AuthConfig struct {
 }
 
 type Config struct {
-	Enabled bool
-	Port    int
-	Host    string
-	TLS     TLSConfig
-	Auth    AuthConfig
+	Enabled           bool
+	Port              int
+	Host              string
+	TLS               TLSConfig
+	Auth              AuthConfig
+	ReposDir          string
+	WorktreesDir      string
+	DefaultBaseBranch string
 }
 
 type Server struct {
@@ -359,16 +366,40 @@ func writeSSE(w http.ResponseWriter, f http.Flusher, e events.Event) {
 
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Title       string   `json:"title"`
-		Tool        db.Tool  `json:"tool"`
-		GroupPath   string   `json:"group_path"`
-		ProjectPath string   `json:"project_path"`
-		Command     string   `json:"command"`
+		Title       string  `json:"title"`
+		Tool        db.Tool `json:"tool"`
+		GroupPath   string  `json:"group_path"`
+		ProjectPath string  `json:"project_path"`
+		Command     string  `json:"command"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
+
+	// Look up the group to check for a repo URL (worktree flow).
+	var groupRepoURL, preLaunchCmd string
+	if body.GroupPath != "" {
+		groups, _ := s.store.LoadGroups()
+		for _, g := range groups {
+			if g.Path == body.GroupPath {
+				groupRepoURL = g.RepoURL
+				preLaunchCmd = g.PreLaunchCommand
+				break
+			}
+		}
+	}
+
+	if groupRepoURL != "" {
+		s.handleCreateWorktreeSession(w, body.Title, body.Tool, body.GroupPath, body.Command, groupRepoURL, preLaunchCmd)
+		return
+	}
+
+	if body.ProjectPath == "" {
+		http.Error(w, "project path is required for groups without a repo URL", 400)
+		return
+	}
+
 	sess, err := s.manager.Create(session.CreateOptions{
 		Title:       body.Title,
 		Tool:        body.Tool,
@@ -384,6 +415,133 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(201)
 	json.NewEncoder(w).Encode(sess)
+}
+
+func (s *Server) handleCreateWorktreeSession(w http.ResponseWriter, title string, tool db.Tool, groupPath, command, repoURL, preLaunchCmd string) {
+	host, owner, repo, err := git.ParseRepoURL(repoURL)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("invalid repo URL: %v", err), 400)
+		return
+	}
+
+	if title == "" {
+		title = session.GenerateTitle()
+	}
+	if command == "" {
+		command = db.ToolCommand(tool, "")
+	}
+
+	// Insert a pending row immediately.
+	sessions, _ := s.store.LoadSessions()
+	now := time.Now()
+	sessionID := uuid.NewString()
+	pending := &db.Session{
+		ID:           sessionID,
+		Title:        title,
+		GroupPath:    groupPath,
+		Tool:         tool,
+		Command:      command,
+		Status:       db.StatusCreating,
+		CreatedAt:    now,
+		LastAccessed: now,
+		SortOrder:    len(sessions),
+		RepoURL:      repoURL,
+	}
+	if err := s.store.SaveSession(pending); err != nil {
+		http.Error(w, fmt.Sprintf("create failed: %v", err), 500)
+		return
+	}
+	_ = s.store.InsertSessionEvent(sessionID, "created", "")
+	s.store.Touch()
+	s.Broadcast(events.Event{Type: "refresh"})
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	json.NewEncoder(w).Encode(pending)
+
+	bareRepoPath := git.BareRepoPath(s.cfg.ReposDir, host, owner, repo)
+	branch := git.SanitizeBranchName(title)
+	wtPath := git.WorktreePath(s.cfg.WorktreesDir, host, owner, repo, branch)
+
+	cancelCreate := func(msg string) {
+		s.store.DeleteSession(sessionID)
+		_ = s.store.Touch()
+		s.Broadcast(events.Event{Type: "refresh"})
+	}
+
+	go func() {
+		// 1. Ensure bare repo directory exists.
+		if err := os.MkdirAll(filepath.Dir(bareRepoPath), 0755); err != nil {
+			cancelCreate(fmt.Sprintf("create repos dir failed: %v", err))
+			return
+		}
+
+		// 2. Clone or fetch the bare repo.
+		if !git.IsBareRepo(bareRepoPath) {
+			if err := git.CloneBare(repoURL, bareRepoPath); err != nil {
+				cancelCreate(fmt.Sprintf("clone failed: %v", err))
+				return
+			}
+		} else {
+			if err := git.FetchBare(bareRepoPath); err != nil {
+				cancelCreate(fmt.Sprintf("fetch failed: %v", err))
+				return
+			}
+		}
+
+		// 3. Ensure worktree parent directory exists.
+		if err := os.MkdirAll(filepath.Dir(wtPath), 0755); err != nil {
+			cancelCreate(fmt.Sprintf("create worktrees dir failed: %v", err))
+			return
+		}
+
+		// 4. Create the worktree; reuse if it already exists.
+		baseBranch := s.cfg.DefaultBaseBranch
+		if baseBranch == "" {
+			baseBranch = "main"
+		}
+		if _, err := git.CreateWorktree(bareRepoPath, branch, wtPath, baseBranch); err != nil && !errors.Is(err, git.ErrWorktreeExists) {
+			cancelCreate(fmt.Sprintf("create worktree failed: %v", err))
+			return
+		}
+
+		// 5. Run pre-launch command if set.
+		if preLaunchCmd != "" {
+			toolCmd := db.ToolCommand(tool, "")
+			out, err := session.RunPreLaunchCommand(preLaunchCmd, toolCmd, bareRepoPath, wtPath)
+			if err != nil {
+				cancelCreate(fmt.Sprintf("pre-launch command failed: %v\n%s", err, out))
+				return
+			}
+		}
+
+		// 6. Create the tmux session.
+		tmuxName := tmux.GenerateSessionName(title)
+		if err := tmux.CreateSession(tmux.CreateOptions{
+			Name:    tmuxName,
+			Command: command,
+			Cwd:     wtPath,
+		}); err != nil {
+			cancelCreate(fmt.Sprintf("create tmux session failed: %v", err))
+			return
+		}
+
+		// 7. Update the DB row to running.
+		pending.TmuxSession = tmuxName
+		pending.Status = db.StatusRunning
+		pending.ProjectPath = wtPath
+		pending.WorktreePath = wtPath
+		pending.WorktreeRepo = bareRepoPath
+		pending.WorktreeBranch = branch
+		pending.LastAccessed = time.Now()
+		if err := s.store.SaveSession(pending); err != nil {
+			tmux.KillSession(tmuxName)
+			cancelCreate(fmt.Sprintf("save failed: %v", err))
+			return
+		}
+		_ = s.store.Touch()
+		s.Broadcast(events.Event{Type: "refresh"})
+	}()
 }
 
 func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {

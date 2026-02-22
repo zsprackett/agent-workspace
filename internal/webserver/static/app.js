@@ -336,6 +336,9 @@ function buildCreateForm(groupPath) {
   const form = document.createElement('div');
   form.className = 'create-form' + (openCreateForms.has(groupPath) ? ' open' : '');
 
+  const group = state.groups.find(g => g.Path === groupPath);
+  const hasRepoURL = !!(group && group.RepoURL);
+
   const mk = (labelText, el) => {
     const row = document.createElement('div');
     row.className = 'form-row';
@@ -357,14 +360,22 @@ function buildCreateForm(groupPath) {
     opt.value = t; opt.textContent = t; toolSelect.appendChild(opt);
   });
 
-  const pathInput = document.createElement('input');
-  pathInput.type = 'text'; pathInput.className = 'form-input'; pathInput.placeholder = 'optional';
-
   const submitBtn = document.createElement('button');
   submitBtn.className = 'form-submit';
   submitBtn.textContent = 'Create';
+
+  let pathInput = null;
+  if (!hasRepoURL) {
+    pathInput = document.createElement('input');
+    pathInput.type = 'text'; pathInput.className = 'form-input'; pathInput.placeholder = 'required';
+  }
+
   submitBtn.onclick = async (e) => {
     e.stopPropagation();
+    if (!hasRepoURL && (!pathInput || !pathInput.value.trim())) {
+      alert('Path is required for this group.');
+      return;
+    }
     const res = await authFetch('/api/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -372,7 +383,7 @@ function buildCreateForm(groupPath) {
         title: titleInput.value.trim() || '',
         tool: toolSelect.value,
         group_path: groupPath,
-        project_path: pathInput.value.trim(),
+        project_path: pathInput ? pathInput.value.trim() : '',
       }),
     });
     if (res && !res.ok) alert(`Create failed: ${res.status}`);
@@ -382,7 +393,7 @@ function buildCreateForm(groupPath) {
 
   form.appendChild(mk('Title', titleInput));
   form.appendChild(mk('Tool', toolSelect));
-  form.appendChild(mk('Path', pathInput));
+  if (pathInput) form.appendChild(mk('Path', pathInput));
   form.appendChild(submitBtn);
   return form;
 }
