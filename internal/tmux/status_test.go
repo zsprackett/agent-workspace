@@ -30,11 +30,14 @@ func TestParseToolStatus_ClaudeBusy(t *testing.T) {
 }
 
 func TestParseToolStatus_ClaudeAtPrompt(t *testing.T) {
-	// Claude at its input prompt (not busy) is always waiting for user input.
+	// Claude at its input prompt looks identical to an inter-step gap from the
+	// perspective of pane text alone. ParseToolStatus returns neither busy nor
+	// waiting; the monitor's IsPaneWaitingForInput (wchan==ttyin) distinguishes
+	// "truly waiting for user" from "between autonomous steps".
 	output := "> "
 	status := tmux.ParseToolStatus(output, "claude")
-	if !status.IsWaiting {
-		t.Error("expected waiting: Claude at prompt should be waiting")
+	if status.IsWaiting {
+		t.Error("expected NOT waiting: at-prompt vs inter-step is determined by IsPaneWaitingForInput, not pane text")
 	}
 	if status.IsBusy {
 		t.Error("expected not busy")
@@ -63,6 +66,28 @@ func TestParseToolStatus_ClaudePermissionDialogWithSpinner(t *testing.T) {
 	}
 	if status.IsBusy {
 		t.Error("expected not busy when permission dialog is visible")
+	}
+}
+
+// TestParseToolStatus_ClaudeBetweenSteps verifies that when Claude is between
+// tool uses (tool just finished, no active spinner or thinking indicator), the
+// status is NOT "waiting". The monitor's IsPaneWaitingForInput handles true
+// user-input detection; ParseToolStatus must not fire false-positive "waiting"
+// during autonomous inter-step gaps.
+func TestParseToolStatus_ClaudeBetweenSteps(t *testing.T) {
+	output := "⏺ Read(internal/tmux/status.go)\n" +
+		"  ⎿ Read 143 lines\n" +
+		"\n" +
+		"──────────────────────────────────────\n" +
+		"❯ \n" +
+		"──────────────────────────────────────\n" +
+		"  project | user@host [ctx: 50%]"
+	status := tmux.ParseToolStatus(output, "claude")
+	if status.IsWaiting {
+		t.Error("IsWaiting must be false during inter-step gap: use IsPaneWaitingForInput for true waiting detection")
+	}
+	if status.IsBusy {
+		t.Error("expected not busy: no active spinner or thinking indicator")
 	}
 }
 
