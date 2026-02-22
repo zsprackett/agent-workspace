@@ -74,7 +74,7 @@ const STATUS_ICONS = {
 
 let state = { sessions: [], groups: [] };
 let selectedSessionID = null;   // replaces expandedSessions Set
-let tabState = {};              // { [sessionID]: 'terminal'|'git'|'notes'|'log' }
+let tabState = {};              // { [sessionID]: 'terminal'|'git'|'notes'|'activity' }
 let openCreateForms = new Set();
 let mobileShowDetail = false;
 let sseRetryDelay = 1000;
@@ -124,6 +124,24 @@ async function loadLogEntries(sessionID, container) {
     row.innerHTML = `<span class="log-ts">${formatTime(e.Ts)}</span><span class="log-type">${e.EventType}</span>`;
     container.appendChild(row);
   });
+}
+
+// --- Terminal scroll ---
+function scrollTerminal(dir) { // -1 = up, 1 = down
+  const iframe = savedIframes[selectedSessionID];
+  if (!iframe) return;
+  try {
+    const doc = iframe.contentDocument;
+    if (!doc) return;
+    const target = doc.querySelector('.xterm-viewport') || doc.querySelector('.xterm');
+    if (!target) return;
+    const rect = target.getBoundingClientRect();
+    target.dispatchEvent(new WheelEvent('wheel', {
+      deltaY: dir * 300, deltaMode: 0, bubbles: true, cancelable: true,
+      clientX: rect.left + rect.width / 2,
+      clientY: rect.top + rect.height / 2,
+    }));
+  } catch (_) {}
 }
 
 // --- Session selection ---
@@ -326,8 +344,8 @@ function rebuildDetail() {
   const tabBar = document.createElement('div');
   tabBar.className = 'tab-bar';
   const tabs = s.TmuxSession
-    ? ['terminal', 'git', 'notes', 'log']
-    : ['git', 'notes', 'log'];
+    ? ['terminal', 'git', 'notes', 'activity']
+    : ['git', 'notes', 'activity'];
   tabs.forEach(t => {
     const btn = document.createElement('button');
     btn.className = 'tab-btn' + (t === tab ? ' active' : '');
@@ -414,6 +432,17 @@ function renderTabContent(s, tab, container) {
       termContainer.appendChild(iframe);
       savedIframes[s.ID] = iframe;
     }
+    const scrollBtns = document.createElement('div');
+    scrollBtns.className = 'terminal-scroll-btns';
+    [['▲', -1, 'Scroll up'], ['▼', 1, 'Scroll down']].forEach(([label, dir, title]) => {
+      const btn = document.createElement('button');
+      btn.className = 'terminal-scroll-btn';
+      btn.textContent = label;
+      btn.title = title;
+      btn.onclick = (e) => { e.stopPropagation(); scrollTerminal(dir); };
+      scrollBtns.appendChild(btn);
+    });
+    termContainer.appendChild(scrollBtns);
     container.appendChild(termContainer);
     return;
   }
@@ -529,7 +558,7 @@ function renderTabContent(s, tab, container) {
     return;
   }
 
-  if (tab === 'log') {
+  if (tab === 'activity') {
     const panel = document.createElement('div');
     panel.className = 'log-panel';
     const title = document.createElement('div');
