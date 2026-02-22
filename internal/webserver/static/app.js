@@ -207,7 +207,6 @@ function renderSidebar() {
 
   uniqueOrder.forEach(path => {
     const { group, sessions } = grouped[path];
-    if (!sessions.length && !openCreateForms.has(path)) return;
 
     // Group header row
     const headerRow = document.createElement('div');
