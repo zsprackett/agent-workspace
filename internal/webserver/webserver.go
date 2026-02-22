@@ -97,6 +97,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.handleDeleteSession)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.handleSessionEvents)
 	mux.HandleFunc("DELETE /api/sessions/{id}/ttyd", s.handleKillTTYD)
+	mux.HandleFunc("GET /api/usage", s.handleUsage)
 	mux.HandleFunc("GET /api/sessions/{id}/git/status", s.handleGitStatus)
 	mux.HandleFunc("GET /api/sessions/{id}/git/diff", s.handleGitDiff)
 	mux.HandleFunc("GET /api/sessions/{id}/git/status/text", s.handleGitStatusText)
@@ -445,6 +446,16 @@ func (s *Server) handleCert(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleKillTTYD(w http.ResponseWriter, r *http.Request) {
 	s.ttyd.kill(r.PathValue("id"))
 	w.WriteHeader(204)
+}
+
+func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
+	latest, _ := s.store.GetLatestUsageSnapshot()
+	history, _ := s.store.GetUsageSnapshots(48)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"latest":  latest,
+		"history": history,
+	})
 }
 
 func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {

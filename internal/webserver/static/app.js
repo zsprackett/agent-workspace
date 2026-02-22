@@ -251,6 +251,87 @@ function renderSidebar() {
   });
 }
 
+// --- Usage ---
+function usageColorClass(util) {
+  if (util >= 0.8) return 'red';
+  if (util >= 0.6) return 'yellow';
+  return 'green';
+}
+
+function formatUsageReset(tsMs) {
+  if (!tsMs) return '';
+  const ms = tsMs - Date.now();
+  if (ms <= 0) return '';
+  const mins = Math.floor(ms / 60000);
+  const hours = Math.floor(mins / 60);
+  const days = Math.floor(hours / 24);
+  if (days > 0) return `→ ${days}d`;
+  if (hours > 0) return `→ ${hours}h${String(mins % 60).padStart(2, '0')}m`;
+  return `→ ${mins}m`;
+}
+
+function buildUsageRow(label, util, resetsAtMs) {
+  const row = document.createElement('div');
+  row.className = 'usage-row';
+
+  const lbl = document.createElement('span');
+  lbl.className = 'usage-label';
+  lbl.textContent = label;
+
+  const bar = document.createElement('div');
+  bar.className = 'usage-bar';
+  const fill = document.createElement('div');
+  fill.className = `usage-fill ${usageColorClass(util)}`;
+  fill.style.width = `${Math.min(util, 1) * 100}%`;
+  bar.appendChild(fill);
+
+  const pct = document.createElement('span');
+  pct.className = 'usage-pct' + (util >= 0.8 ? ' warn' : '');
+  pct.textContent = `${Math.round(util * 100)}%`;
+
+  const reset = document.createElement('span');
+  reset.className = 'usage-reset';
+  reset.textContent = formatUsageReset(resetsAtMs);
+
+  row.appendChild(lbl);
+  row.appendChild(bar);
+  row.appendChild(pct);
+  row.appendChild(reset);
+  return row;
+}
+
+async function fetchUsage() {
+  const widget = document.getElementById('usage-widget');
+  if (!widget) return;
+  const res = await authFetch('/api/usage');
+  if (!res || !res.ok) return;
+  const data = await res.json();
+  renderUsage(data, widget);
+}
+
+function renderUsage(data, widget) {
+  widget.innerHTML = '';
+  if (!data || !data.latest) {
+    widget.innerHTML = '<span class="usage-empty">no usage data</span>';
+    return;
+  }
+  const { latest } = data;
+  const fiveHour = latest.FiveHourUtil / 100;
+  const sevenDay = latest.SevenDayUtil / 100;
+
+  widget.appendChild(buildUsageRow('5h', fiveHour, latest.FiveHourResetsAt));
+  widget.appendChild(buildUsageRow('7d', sevenDay, latest.SevenDayResetsAt));
+
+  if (latest.ExtraEnabled) {
+    const used = (latest.ExtraUsedCredits / 100).toFixed(2);
+    const extraUtil = latest.ExtraUtilization / 100;
+    const row = buildUsageRow('$', extraUtil, 0);
+    const pct = row.querySelector('.usage-pct');
+    if (pct) pct.textContent = `$${used}`;
+    widget.appendChild(row);
+  }
+}
+
 // --- Create form (inline in sidebar) ---
 function buildCreateForm(groupPath) {
   const form = document.createElement('div');
@@ -655,4 +736,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   fetchSessions();
   connectSSE();
+  fetchUsage();
+  setInterval(fetchUsage, 5 * 60 * 1000);
 });

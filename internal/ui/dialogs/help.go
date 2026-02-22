@@ -20,6 +20,7 @@ const helpText = `[yellow]Dashboard Keys[-]
   [green]g[-]        New group
   [green]m[-]        Move session to group
   [green]1-9[-]      Jump to group
+  [green]u[-]        Claude usage stats
   [green]?[-]        This help
   [green]q[-]        Quit
 

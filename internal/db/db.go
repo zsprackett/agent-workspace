@@ -177,6 +177,24 @@ func (d *DB) Migrate() error {
 		return fmt.Errorf("create refresh_tokens: %w", err)
 	}
 
+	_, err = d.sql.Exec(`
+		CREATE TABLE IF NOT EXISTS usage_snapshots (
+			id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+			ts_ms                INTEGER NOT NULL,
+			five_hour_util       REAL,
+			five_hour_resets_at  INTEGER,
+			seven_day_util       REAL,
+			seven_day_resets_at  INTEGER,
+			extra_enabled        INTEGER,
+			extra_monthly_limit  INTEGER,
+			extra_used_credits   INTEGER,
+			extra_utilization    REAL
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("create usage_snapshots: %w", err)
+	}
+
 	return nil
 }
 
@@ -554,6 +572,65 @@ func (d *DB) IsEmpty() (bool, error) {
 	var count int
 	err := d.sql.QueryRow("SELECT COUNT(*) FROM sessions").Scan(&count)
 	return count == 0, err
+}
+
+func (d *DB) InsertUsageSnapshot(snap UsageSnapshot) error {
+	_, err := d.sql.Exec(`
+		INSERT INTO usage_snapshots (
+			ts_ms, five_hour_util, five_hour_resets_at,
+			seven_day_util, seven_day_resets_at,
+			extra_enabled, extra_monthly_limit, extra_used_credits, extra_utilization
+		) VALUES (?,?,?,?,?,?,?,?,?)`,
+		snap.TsMs, snap.FiveHourUtil, snap.FiveHourResetsAt,
+		snap.SevenDayUtil, snap.SevenDayResetsAt,
+		boolToInt(snap.ExtraEnabled), snap.ExtraMonthlyLimit, snap.ExtraUsedCredits, snap.ExtraUtilization,
+	)
+	return err
+}
+
+func (d *DB) GetLatestUsageSnapshot() (*UsageSnapshot, error) {
+	row := d.sql.QueryRow(`
+		SELECT id, ts_ms, five_hour_util, five_hour_resets_at,
+			seven_day_util, seven_day_resets_at,
+			extra_enabled, extra_monthly_limit, extra_used_credits, extra_utilization
+		FROM usage_snapshots ORDER BY ts_ms DESC LIMIT 1`)
+	return scanUsageSnapshot(row)
+}
+
+func (d *DB) GetUsageSnapshots(limit int) ([]UsageSnapshot, error) {
+	rows, err := d.sql.Query(`
+		SELECT id, ts_ms, five_hour_util, five_hour_resets_at,
+			seven_day_util, seven_day_resets_at,
+			extra_enabled, extra_monthly_limit, extra_used_credits, extra_utilization
+		FROM usage_snapshots ORDER BY ts_ms DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var snaps []UsageSnapshot
+	for rows.Next() {
+		s, err := scanUsageSnapshot(rows)
+		if err != nil {
+			return nil, err
+		}
+		snaps = append(snaps, *s)
+	}
+	return snaps, rows.Err()
+}
+
+func scanUsageSnapshot(row rowScanner) (*UsageSnapshot, error) {
+	var s UsageSnapshot
+	var extraEnabled int
+	err := row.Scan(
+		&s.ID, &s.TsMs, &s.FiveHourUtil, &s.FiveHourResetsAt,
+		&s.SevenDayUtil, &s.SevenDayResetsAt,
+		&extraEnabled, &s.ExtraMonthlyLimit, &s.ExtraUsedCredits, &s.ExtraUtilization,
+	)
+	if err != nil {
+		return nil, err
+	}
+	s.ExtraEnabled = extraEnabled == 1
+	return &s, nil
 }
 
 func (d *DB) InsertSessionEvent(sessionID, eventType, detail string) error {

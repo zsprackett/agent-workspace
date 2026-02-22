@@ -45,6 +45,7 @@ type Home struct {
 	onMove     func(item listItem)
 	onAttach   func(item listItem)
 	onNotes    func(item listItem)
+	onUsage    func()
 	onQuit     func()
 }
 
@@ -77,7 +78,7 @@ func NewHome(app *tview.Application, store *db.DB) *Home {
 	h.footer.SetText(
 		"[green]↑↓[-] navigate  [green]←→[-] fold  [green]Enter/a[-] attach  " +
 			"[green]n[-] new/notes  [green]d[-] delete  [green]s[-] stop  [green]x[-] restart  " +
-			"[green]e[-] edit  [green]g[-] group  [green]m[-] move  [green]?[-] help  [green]q[-] quit")
+			"[green]e[-] edit  [green]g[-] group  [green]m[-] move  [green]u[-] usage  [green]?[-] help  [green]q[-] quit")
 
 	previewFlex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(h.preview, 0, 1, false)
@@ -108,6 +109,7 @@ func (h *Home) SetCallbacks(
 	onMove func(listItem),
 	onAttach func(listItem),
 	onNotes func(listItem),
+	onUsage func(),
 	onQuit func(),
 ) {
 	h.onNew = onNew
@@ -119,6 +121,7 @@ func (h *Home) SetCallbacks(
 	h.onMove = onMove
 	h.onAttach = onAttach
 	h.onNotes = onNotes
+	h.onUsage = onUsage
 	h.onQuit = onQuit
 }
 
@@ -412,6 +415,11 @@ func (h *Home) setupInput() {
 				if !item.isGroup && !isPending(item) && h.onMove != nil {
 					h.onMove(item)
 				}
+			}
+			return nil
+		case 'u':
+			if h.onUsage != nil {
+				h.onUsage()
 			}
 			return nil
 		case 'q':
