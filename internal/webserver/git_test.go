@@ -1,6 +1,7 @@
 package webserver_test
 
 import (
+	"encoding/json"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -178,4 +179,78 @@ func containsStr(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+func TestHandleGitStatusText_UnknownSession(t *testing.T) {
+	srv, _ := newServer(t)
+	req := httptest.NewRequest("GET", "/api/sessions/no-such-id/git/status/text", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestHandleGitStatusText_NoPath(t *testing.T) {
+	srv, store := newServer(t)
+	seedSession(t, store, "")
+	req := httptest.NewRequest("GET", "/api/sessions/git-test-id/git/status/text", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != 422 {
+		t.Fatalf("expected 422, got %d", w.Code)
+	}
+}
+
+func TestHandleGitStatusText_WithRepo(t *testing.T) {
+	srv, store := newServer(t)
+	repoDir := initGitRepo(t)
+	seedSession(t, store, repoDir)
+	req := httptest.NewRequest("GET", "/api/sessions/git-test-id/git/status/text", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("expected application/json, got %q", ct)
+	}
+	var body struct{ Output string }
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Output == "" {
+		t.Error("expected non-empty output")
+	}
+}
+
+func TestHandleGitDiffText_UnknownSession(t *testing.T) {
+	srv, _ := newServer(t)
+	req := httptest.NewRequest("GET", "/api/sessions/no-such-id/git/diff/text", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestHandleGitDiffText_WithRepo(t *testing.T) {
+	srv, store := newServer(t)
+	repoDir := initGitRepo(t)
+	seedSession(t, store, repoDir)
+	req := httptest.NewRequest("GET", "/api/sessions/git-test-id/git/diff/text", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("expected application/json, got %q", ct)
+	}
+	var body struct{ Output string }
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// Clean repo has no diff — output field must exist but may be empty string.
+	_ = body.Output
 }

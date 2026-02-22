@@ -99,6 +99,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/sessions/{id}/ttyd", s.handleKillTTYD)
 	mux.HandleFunc("GET /api/sessions/{id}/git/status", s.handleGitStatus)
 	mux.HandleFunc("GET /api/sessions/{id}/git/diff", s.handleGitDiff)
+	mux.HandleFunc("GET /api/sessions/{id}/git/status/text", s.handleGitStatusText)
+	mux.HandleFunc("GET /api/sessions/{id}/git/diff/text", s.handleGitDiffText)
 	mux.HandleFunc("GET /api/sessions/{id}/pr-url", s.handlePRURL)
 	mux.HandleFunc("GET /terminal/{id}/", s.handleTerminalProxy)
 	mux.HandleFunc("GET /events", s.handleSSE)

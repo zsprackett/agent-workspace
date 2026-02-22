@@ -1,6 +1,7 @@
 package webserver
 
 import (
+	"encoding/json"
 	"fmt"
 	"html"
 	"net/http"
@@ -106,6 +107,69 @@ func (s *Server) handleGitDiff(w http.ResponseWriter, r *http.Request) {
 		ColorDiffLines(string(out)))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(body))
+}
+
+func (s *Server) handleGitStatusText(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	sess, err := s.store.GetSession(id)
+	if err != nil || sess == nil {
+		http.Error(w, "session not found", 404)
+		return
+	}
+	path := sess.WorktreePath
+	if path == "" {
+		path = sess.ProjectPath
+	}
+	if path == "" {
+		http.Error(w, "session has no working directory", 422)
+		return
+	}
+
+	cmd := exec.Command("git", "status")
+	cmd.Dir = path
+	out, _ := cmd.CombinedOutput()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"output": string(out)})
+}
+
+func (s *Server) handleGitDiffText(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	sess, err := s.store.GetSession(id)
+	if err != nil || sess == nil {
+		http.Error(w, "session not found", 404)
+		return
+	}
+	path := sess.WorktreePath
+	if path == "" {
+		path = sess.ProjectPath
+	}
+	if path == "" {
+		http.Error(w, "session has no working directory", 422)
+		return
+	}
+
+	cmd := exec.Command("git", "diff", "HEAD")
+	cmd.Dir = path
+	out, _ := cmd.CombinedOutput()
+
+	untrackedCmd := exec.Command("git", "ls-files", "--others", "--exclude-standard")
+	untrackedCmd.Dir = path
+	untracked, _ := untrackedCmd.Output()
+	if len(strings.TrimSpace(string(untracked))) > 0 {
+		for _, f := range strings.Split(strings.TrimSpace(string(untracked)), "\n") {
+			if f == "" {
+				continue
+			}
+			diffCmd := exec.Command("git", "diff", "--no-index", "--", "/dev/null", f)
+			diffCmd.Dir = path
+			diffOut, _ := diffCmd.Output()
+			out = append(out, diffOut...)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"output": string(out)})
 }
 
 func (s *Server) handlePRURL(w http.ResponseWriter, r *http.Request) {
