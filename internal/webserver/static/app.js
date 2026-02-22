@@ -51,6 +51,18 @@ async function logout() {
   window.location.href = '/login';
 }
 
+// --- Diff coloring ---
+function colorDiffLines(text) {
+  return text.split('\n').map(line => {
+    const esc = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    if (line.startsWith('+++') || line.startsWith('---')) return `<span class="diff-hdr">${esc}</span>`;
+    if (line.startsWith('+')) return `<span class="diff-add">${esc}</span>`;
+    if (line.startsWith('-')) return `<span class="diff-del">${esc}</span>`;
+    if (line.startsWith('@@')) return `<span class="diff-hunk">${esc}</span>`;
+    return esc;
+  }).join('\n');
+}
+
 // --- State ---
 const STATUS_ICONS = {
   running: { char: '●', cls: 'running' },
@@ -409,38 +421,90 @@ function renderTabContent(s, tab, container) {
   if (tab === 'git') {
     const panel = document.createElement('div');
     panel.className = 'git-panel';
+
+    // Action row: dirty notice + Refresh + Open PR
+    const actionRow = document.createElement('div');
+    actionRow.className = 'git-action-row';
+
     if (s.HasUncommitted) {
       const notice = document.createElement('div');
       notice.className = 'dirty-notice';
       notice.textContent = '● uncommitted changes';
-      panel.appendChild(notice);
+      actionRow.appendChild(notice);
     }
+
+    const refreshBtn = document.createElement('button');
+    refreshBtn.className = 'git-btn';
+    refreshBtn.textContent = '↻ Refresh';
+
+    const prBtn = document.createElement('button');
+    prBtn.className = 'git-btn';
+    prBtn.textContent = 'Open PR';
+    prBtn.onclick = async () => {
+      const res = await authFetch(`/api/sessions/${s.ID}/pr-url`);
+      if (!res || !res.ok) { alert('No open PR found for this branch.'); return; }
+      const { url } = await res.json();
+      window.open(url, '_blank');
+    };
+
+    actionRow.appendChild(refreshBtn);
+    actionRow.appendChild(prBtn);
+    panel.appendChild(actionRow);
+
     if (s.ProjectPath || s.WorktreePath) {
-      const token = getAccessToken();
-      const row = document.createElement('div');
-      row.className = 'git-btn-row';
-      const mkGitBtn = (label, onClick) => {
-        const btn = document.createElement('button');
-        btn.className = 'git-btn'; btn.textContent = label; btn.onclick = onClick;
-        return btn;
+      // Status section
+      const statusLabel = document.createElement('div');
+      statusLabel.className = 'git-section-label';
+      statusLabel.textContent = 'Status';
+      panel.appendChild(statusLabel);
+
+      const statusPre = document.createElement('pre');
+      statusPre.className = 'git-output';
+      statusPre.textContent = 'loading...';
+      panel.appendChild(statusPre);
+
+      // Diff section
+      const diffLabel = document.createElement('div');
+      diffLabel.className = 'git-section-label';
+      diffLabel.textContent = 'Diff';
+      panel.appendChild(diffLabel);
+
+      const diffPre = document.createElement('pre');
+      diffPre.className = 'git-output';
+      diffPre.textContent = 'loading...';
+      panel.appendChild(diffPre);
+
+      const loadGit = async () => {
+        statusPre.textContent = 'loading...';
+        diffPre.textContent = 'loading...';
+        const [statusRes, diffRes] = await Promise.all([
+          authFetch(`/api/sessions/${s.ID}/git/status/text`),
+          authFetch(`/api/sessions/${s.ID}/git/diff/text`),
+        ]);
+        if (statusRes && statusRes.ok) {
+          const { output } = await statusRes.json();
+          statusPre.textContent = output || '(nothing to show)';
+        } else {
+          statusPre.textContent = '(error fetching status)';
+        }
+        if (diffRes && diffRes.ok) {
+          const { output } = await diffRes.json();
+          diffPre.innerHTML = output ? colorDiffLines(output) : '(no diff)';
+        } else {
+          diffPre.textContent = '(error fetching diff)';
+        }
       };
-      row.appendChild(mkGitBtn('Git Status', () =>
-        window.open(`/api/sessions/${s.ID}/git/status?token=${encodeURIComponent(token)}`, '_blank')));
-      row.appendChild(mkGitBtn('Git Diff', () =>
-        window.open(`/api/sessions/${s.ID}/git/diff?token=${encodeURIComponent(token)}`, '_blank')));
-      row.appendChild(mkGitBtn('Open PR', async () => {
-        const res = await authFetch(`/api/sessions/${s.ID}/pr-url`);
-        if (!res || !res.ok) { alert('No open PR found for this branch.'); return; }
-        const { url } = await res.json();
-        window.open(url, '_blank');
-      }));
-      panel.appendChild(row);
+
+      refreshBtn.onclick = loadGit;
+      loadGit();
     } else {
       const msg = document.createElement('div');
       msg.style.cssText = 'font-size:12px;color:var(--muted)';
       msg.textContent = 'No git working directory for this session.';
       panel.appendChild(msg);
+      refreshBtn.disabled = true;
     }
+
     container.appendChild(panel);
     return;
   }
