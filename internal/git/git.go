@@ -203,14 +203,22 @@ func WorktreePath(baseDir, host, owner, repo, branch string) string {
 	return filepath.Join(baseDir, host, owner, repo, branch)
 }
 
-// ensureRemoteTrackingRefs adds the refs/remotes/origin/* fetch refspec to a bare
-// repo if it is not already present. This lets worktrees see remote tracking refs
-// (refs/remotes/origin/main, etc.) so upstream tracking and git status work correctly.
+// ensureRemoteTrackingRefs ensures two fetch refspecs are configured on the bare repo:
+//   - +refs/heads/*:refs/remotes/origin/*  so worktrees see remote tracking refs
+//     (refs/remotes/origin/main, etc.) for upstream tracking and git status.
+//   - +refs/heads/*:refs/heads/*  so local branches (main, etc.) are updated by
+//     git fetch; without this, local branches stay at the commit from the initial
+//     clone, causing new worktrees to start far behind origin.
 func ensureRemoteTrackingRefs(repoDir string) {
 	out, _ := exec.Command("git", "-C", repoDir, "config", "--get-all", "remote.origin.fetch").Output()
-	if !strings.Contains(string(out), "refs/remotes/origin/") {
+	existing := string(out)
+	if !strings.Contains(existing, "refs/remotes/origin/") {
 		exec.Command("git", "-C", repoDir, "config", "--add", "remote.origin.fetch",
 			"+refs/heads/*:refs/remotes/origin/*").Run()
+	}
+	if !strings.Contains(existing, "refs/heads/*:refs/heads/*") {
+		exec.Command("git", "-C", repoDir, "config", "--add", "remote.origin.fetch",
+			"+refs/heads/*:refs/heads/*").Run()
 	}
 }
 
