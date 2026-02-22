@@ -105,10 +105,15 @@ func CreateWorktree(repoDir, branchName, worktreePath, baseBranch string) (strin
 		if base == "" {
 			base = "HEAD"
 		}
+		startPoint := base
 		if base != "HEAD" {
 			upstream = "origin/" + base
+			// Use the remote tracking ref as the start point so the new worktree
+			// begins at the latest fetched commit rather than the (potentially
+			// stale) local branch ref.
+			startPoint = "origin/" + base
 		}
-		cmd = exec.Command("git", "-C", repoDir, "worktree", "add", "-b", branchName, worktreePath, base)
+		cmd = exec.Command("git", "-C", repoDir, "worktree", "add", "-b", branchName, worktreePath, startPoint)
 	}
 	if out, err := cmd.CombinedOutput(); err != nil {
 		if strings.Contains(string(out), "already exists") {
@@ -203,22 +208,26 @@ func WorktreePath(baseDir, host, owner, repo, branch string) string {
 	return filepath.Join(baseDir, host, owner, repo, branch)
 }
 
-// ensureRemoteTrackingRefs ensures two fetch refspecs are configured on the bare repo:
-//   - +refs/heads/*:refs/remotes/origin/*  so worktrees see remote tracking refs
-//     (refs/remotes/origin/main, etc.) for upstream tracking and git status.
-//   - +refs/heads/*:refs/heads/*  so local branches (main, etc.) are updated by
-//     git fetch; without this, local branches stay at the commit from the initial
-//     clone, causing new worktrees to start far behind origin.
+// ensureRemoteTrackingRefs ensures the remote tracking refspec is configured on the
+// bare repo so worktrees see remote tracking refs (refs/remotes/origin/main, etc.)
+// for upstream tracking and git status. We intentionally do NOT add a
+// +refs/heads/*:refs/heads/* refspec because git refuses to update a local branch
+// ref that is currently checked out in a linked worktree, causing fetch errors.
+// Instead, CreateWorktree uses origin/<base> as the starting commit so new worktrees
+// always begin at the latest remote state.
+// If the problematic +refs/heads/*:refs/heads/* refspec is present (added by a
+// previous version), it is removed here.
 func ensureRemoteTrackingRefs(repoDir string) {
 	out, _ := exec.Command("git", "-C", repoDir, "config", "--get-all", "remote.origin.fetch").Output()
 	existing := string(out)
+	// Remove the problematic refspec if it was added by a previous version.
+	if strings.Contains(existing, "refs/heads/*:refs/heads/*") {
+		exec.Command("git", "-C", repoDir, "config", "--unset", "remote.origin.fetch",
+			`^\+refs/heads/\*:refs/heads/\*$`).Run()
+	}
 	if !strings.Contains(existing, "refs/remotes/origin/") {
 		exec.Command("git", "-C", repoDir, "config", "--add", "remote.origin.fetch",
 			"+refs/heads/*:refs/remotes/origin/*").Run()
-	}
-	if !strings.Contains(existing, "refs/heads/*:refs/heads/*") {
-		exec.Command("git", "-C", repoDir, "config", "--add", "remote.origin.fetch",
-			"+refs/heads/*:refs/heads/*").Run()
 	}
 }
 
