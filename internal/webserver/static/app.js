@@ -137,7 +137,7 @@ function scrollTerminal(dir) { // -1 = up, 1 = down
     if (!target) return;
     const rect = target.getBoundingClientRect();
     target.dispatchEvent(new WheelEvent('wheel', {
-      deltaY: dir * 300, deltaMode: 0, bubbles: true, cancelable: true,
+      deltaY: dir * 1200, deltaMode: 0, bubbles: true, cancelable: true,
       clientX: rect.left + rect.width / 2,
       clientY: rect.top + rect.height / 2,
     }));
