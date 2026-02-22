@@ -57,18 +57,21 @@ type contextKey string
 const usernameKey contextKey = "username"
 
 // jwtMiddleware validates the Bearer token in the Authorization header.
-// Only /api/ routes are protected (excluding /api/auth/ which is always public).
+// /api/ routes (excluding /api/auth/), /terminal/, and /events are protected.
 // Static files and the login page are always served without authentication.
-// SSE connections may pass the token as ?token= query param.
+// SSE and terminal connections may pass the token as ?token= query param.
 func jwtMiddleware(secret string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Only protect API routes.
-		if !strings.HasPrefix(r.URL.Path, "/api/") {
+		// Auth endpoints are always public.
+		if strings.HasPrefix(r.URL.Path, "/api/auth/") {
 			next.ServeHTTP(w, r)
 			return
 		}
-		// Auth endpoints are always public.
-		if strings.HasPrefix(r.URL.Path, "/api/auth/") {
+		// Protect API routes, terminal proxy, and SSE stream.
+		protected := strings.HasPrefix(r.URL.Path, "/api/") ||
+			strings.HasPrefix(r.URL.Path, "/terminal/") ||
+			r.URL.Path == "/events"
+		if !protected {
 			next.ServeHTTP(w, r)
 			return
 		}

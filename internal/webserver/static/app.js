@@ -522,7 +522,8 @@ function renderTabContent(s, tab, container) {
       termContainer.appendChild(savedIframes[s.ID]);
     } else {
       const iframe = document.createElement('iframe');
-      iframe.src = `/terminal/${s.ID}/`;
+      const tok = getAccessToken();
+      iframe.src = `/terminal/${s.ID}/` + (tok ? `?token=${encodeURIComponent(tok)}` : '');
       iframe.className = 'terminal-iframe';
       termContainer.appendChild(iframe);
       savedIframes[s.ID] = iframe;
