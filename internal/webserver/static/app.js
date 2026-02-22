@@ -422,7 +422,7 @@ function renderTabContent(s, tab, container) {
     const panel = document.createElement('div');
     panel.className = 'git-panel';
 
-    // Action row: dirty notice + Refresh + Open PR
+    // Action row: dirty notice + Refresh + View PR (if PR exists)
     const actionRow = document.createElement('div');
     actionRow.className = 'git-action-row';
 
@@ -437,18 +437,7 @@ function renderTabContent(s, tab, container) {
     refreshBtn.className = 'git-btn';
     refreshBtn.textContent = '↻ Refresh';
 
-    const prBtn = document.createElement('button');
-    prBtn.className = 'git-btn';
-    prBtn.textContent = 'Open PR';
-    prBtn.onclick = async () => {
-      const res = await authFetch(`/api/sessions/${s.ID}/pr-url`);
-      if (!res || !res.ok) { alert('No open PR found for this branch.'); return; }
-      const { url } = await res.json();
-      window.open(url, '_blank');
-    };
-
     actionRow.appendChild(refreshBtn);
-    actionRow.appendChild(prBtn);
     panel.appendChild(actionRow);
 
     if (s.ProjectPath || s.WorktreePath) {
@@ -477,9 +466,10 @@ function renderTabContent(s, tab, container) {
       const loadGit = async () => {
         statusPre.textContent = 'loading...';
         diffPre.textContent = 'loading...';
-        const [statusRes, diffRes] = await Promise.all([
+        const [statusRes, diffRes, prRes] = await Promise.all([
           authFetch(`/api/sessions/${s.ID}/git/status/text`),
           authFetch(`/api/sessions/${s.ID}/git/diff/text`),
+          authFetch(`/api/sessions/${s.ID}/pr-url`),
         ]);
         if (statusRes && statusRes.ok) {
           const { output } = await statusRes.json();
@@ -492,6 +482,19 @@ function renderTabContent(s, tab, container) {
           diffPre.innerHTML = output ? colorDiffLines(output) : '(no diff)';
         } else {
           diffPre.textContent = '(error fetching diff)';
+        }
+        // Show View PR button only if a PR exists.
+        const existingPrBtn = actionRow.querySelector('.pr-btn');
+        if (existingPrBtn) existingPrBtn.remove();
+        if (prRes && prRes.ok) {
+          const { url } = await prRes.json();
+          if (url) {
+            const prBtn = document.createElement('button');
+            prBtn.className = 'git-btn pr-btn';
+            prBtn.textContent = 'View PR';
+            prBtn.onclick = () => window.open(url, '_blank');
+            actionRow.appendChild(prBtn);
+          }
         }
       };
 
