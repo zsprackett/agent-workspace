@@ -109,7 +109,7 @@ func openGitLog(tmuxSession string) {
 		return
 	}
 	gitlogCmd := fmt.Sprintf("%q gitlog %q", exe, tmuxSession)
-	popupCmd := fmt.Sprintf("sleep 0.3 && tmux display-popup -E -t %q -w 160 -h 45 %q", tmuxSession, gitlogCmd)
+	popupCmd := fmt.Sprintf("sleep 0.3 && tmux display-popup -E -t %q -w 90%% -h 90%% %q", tmuxSession, gitlogCmd)
 	exec.Command("tmux", "run-shell", "-b", popupCmd).Run()
 }
 
