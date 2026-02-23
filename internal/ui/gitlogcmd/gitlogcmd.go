@@ -51,7 +51,19 @@ func truncate(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
-// Run opens a tview two-pane git history browser for the session identified
+// leftPaneWidth computes the minimum width needed to display the commit list
+// without truncating any column: 2 (border) + 8 (hash+space) + 39 (subject+space) + maxRelDate + 2 (buffer).
+func leftPaneWidth(commits []commit) int {
+	maxRelDate := 10
+	for _, c := range commits {
+		if l := len(c.RelDate); l > maxRelDate {
+			maxRelDate = l
+		}
+	}
+	return 51 + maxRelDate
+}
+
+// Run opens a tview three-pane git history browser for the session identified
 // by its tmux session name. Intended to be called inside a tmux display-popup.
 func Run(tmuxSession string) error {
 	store, err := db.Open(config.DBPath())
@@ -74,7 +86,15 @@ func Run(tmuxSession string) error {
 
 	app := tview.NewApplication()
 
-	// --- left pane: commit list ---
+	// --- top-left pane: full commit message ---
+	msgView := tview.NewTextView()
+	msgView.SetScrollable(true).SetWrap(true)
+	msgView.SetBorder(true).
+		SetTitle(" Message ").
+		SetTitleAlign(tview.AlignLeft)
+	msgView.SetBackgroundColor(tcell.ColorDefault)
+
+	// --- bottom-left pane: commit list ---
 	table := tview.NewTable()
 	table.SetBorder(true).
 		SetTitle(fmt.Sprintf(" %s ", s.Title)).
@@ -110,6 +130,14 @@ func Run(tmuxSession string) error {
 	diff.SetBackgroundColor(tcell.ColorDefault)
 
 	showCommit := func(hash string) {
+		// Update commit message pane.
+		msgView.Clear()
+		if msgOut, err := exec.Command("git", "-C", path, "log", "-1", "--pretty=format:%B", hash).Output(); err == nil {
+			fmt.Fprint(msgView, strings.TrimSpace(string(msgOut)))
+		}
+		msgView.ScrollToBeginning()
+
+		// Update diff pane.
 		diff.Clear()
 		out, err := exec.Command("git", "-C", path, "show", "--color=always", hash).Output()
 		w := tview.ANSIWriter(diff)
@@ -148,8 +176,13 @@ func Run(tmuxSession string) error {
 	})
 
 	// --- layout ---
+	// Left column: message pane (1/4) above commit list (3/4), fixed width.
+	leftCol := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(msgView, 0, 1, false).
+		AddItem(table, 0, 3, true)
+
 	panes := tview.NewFlex().
-		AddItem(table, 0, 1, true).
+		AddItem(leftCol, leftPaneWidth(commits), 0, true).
 		AddItem(diff, 0, 1, false)
 
 	hint := tview.NewTextView().
