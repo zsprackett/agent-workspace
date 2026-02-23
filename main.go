@@ -14,6 +14,7 @@ import (
 	"github.com/zsprackett/agent-workspace/internal/db"
 	"github.com/zsprackett/agent-workspace/internal/tmux"
 	"github.com/zsprackett/agent-workspace/internal/ui"
+	"github.com/zsprackett/agent-workspace/internal/ui/gitlogcmd"
 	"github.com/zsprackett/agent-workspace/internal/ui/menucmd"
 	"github.com/zsprackett/agent-workspace/internal/ui/notescmd"
 )
@@ -38,6 +39,15 @@ func main() {
 	// notes subcommand: invoked from within a tmux session via display-popup
 	if len(os.Args) == 3 && os.Args[1] == "notes" {
 		if err := notescmd.Run(os.Args[2]); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// gitlog subcommand: invoked from within a tmux session via display-popup
+	if len(os.Args) == 3 && os.Args[1] == "gitlog" {
+		if err := gitlogcmd.Run(os.Args[2]); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
