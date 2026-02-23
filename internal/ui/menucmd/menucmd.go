@@ -12,6 +12,7 @@ import (
 const menuText = `
   [green]s[-]  Git status
   [green]d[-]  Git diff
+  [green]h[-]  Git history
   [green]p[-]  Open PR in browser
   [green]n[-]  Session notes
   [green]t[-]  Open terminal split
@@ -46,6 +47,9 @@ func Run(tmuxSession string) error {
 		case 'd':
 			app.Stop()
 			gitDiff(panePath)
+		case 'h':
+			app.Stop()
+			openGitLog(tmuxSession)
 		case 'p':
 			app.Stop()
 			openPR(panePath)
@@ -97,5 +101,15 @@ func openNotes(tmuxSession string) {
 
 func openTerminal(path string) {
 	exec.Command("tmux", "split-window", "-v", "-c", path).Run()
+}
+
+func openGitLog(tmuxSession string) {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	gitlogCmd := fmt.Sprintf("%q gitlog %q", exe, tmuxSession)
+	popupCmd := fmt.Sprintf("sleep 0.3 && tmux display-popup -E -t %q -w 160 -h 45 %q", tmuxSession, gitlogCmd)
+	exec.Command("tmux", "run-shell", "-b", popupCmd).Run()
 }
 
