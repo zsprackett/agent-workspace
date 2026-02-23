@@ -76,9 +76,10 @@ func gitDiff(path string) {
 }
 
 func openPR(path string) {
-	exec.Command("sh", "-c",
+	cmd := exec.Command("sh", "-c",
 		fmt.Sprintf(`cd %q && url=$(gh pr view --json url --jq .url 2>/dev/null) && [ -n "$url" ] && { open "$url" 2>/dev/null || xdg-open "$url" 2>/dev/null; } || tmux display-message "No open PR found for this branch"`, path),
-	).Run()
+	)
+	cmd.Start() //nolint:errcheck
 }
 
 func openNotes(tmuxSession string) {
