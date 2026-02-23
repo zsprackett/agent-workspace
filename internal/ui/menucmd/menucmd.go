@@ -52,7 +52,7 @@ func Run(tmuxSession string) error {
 			openGitLog(tmuxSession)
 		case 'p':
 			app.Stop()
-			openPR(panePath)
+			openPR(panePath, tmuxSession)
 		case 'n':
 			app.Stop()
 			openNotes(tmuxSession)
@@ -79,11 +79,12 @@ func gitDiff(path string) {
 		`out=$(git diff HEAD --color=always; git ls-files --others --exclude-standard -z | xargs -0 -I{} git diff --no-index --color=always -- /dev/null {} 2>/dev/null); if [ -n "$out" ]; then printf '%s\n' "$out" | less -RX; else printf 'No changes.\n\nPress enter to close...'; read; fi`).Run()
 }
 
-func openPR(path string) {
-	cmd := exec.Command("sh", "-c",
-		fmt.Sprintf(`cd %q && url=$(gh pr view --json url --jq .url 2>/dev/null) && [ -n "$url" ] && { open "$url" 2>/dev/null || xdg-open "$url" 2>/dev/null; } || tmux display-message "No open PR found for this branch"`, path),
+func openPR(path, tmuxSession string) {
+	script := fmt.Sprintf(
+		`cd %q && url=$(gh pr view --json url --jq .url 2>/dev/null) && [ -n "$url" ] && { open "$url" 2>/dev/null || xdg-open "$url" 2>/dev/null; } || tmux display-message -t %q "No open PR found for this branch"`,
+		path, tmuxSession,
 	)
-	cmd.Start() //nolint:errcheck
+	exec.Command("tmux", "run-shell", "-b", "sleep 0.3 && "+script).Run() //nolint:errcheck
 }
 
 func openNotes(tmuxSession string) {
