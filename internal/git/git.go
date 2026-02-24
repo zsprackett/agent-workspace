@@ -1,6 +1,7 @@
 package git
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -135,6 +136,7 @@ func RemoveWorktree(repoDir, worktreePath string, force bool) error {
 	args = append(args, worktreePath)
 	out, err := exec.Command("git", args...).CombinedOutput()
 	if err == nil {
+		pruneClaudeProject(worktreePath)
 		return nil
 	}
 	msg := string(out)
@@ -145,9 +147,46 @@ func RemoveWorktree(repoDir, worktreePath string, force bool) error {
 		if rmErr := os.RemoveAll(worktreePath); rmErr != nil {
 			return fmt.Errorf("remove worktree directory: %w", rmErr)
 		}
+		pruneClaudeProject(worktreePath)
 		return nil
 	}
 	return fmt.Errorf("remove worktree: %s", msg)
+}
+
+// pruneClaudeProject removes the entry for worktreePath from ~/.claude.json's
+// "projects" map, if present. Errors are silently ignored since this is best-effort.
+func pruneClaudeProject(worktreePath string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	claudeJSON := filepath.Join(home, ".claude.json")
+	data, err := os.ReadFile(claudeJSON)
+	if err != nil {
+		return
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return
+	}
+	projects, ok := doc["projects"].(map[string]any)
+	if !ok {
+		return
+	}
+	if _, exists := projects[worktreePath]; !exists {
+		return
+	}
+	delete(projects, worktreePath)
+	updated, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return
+	}
+	updated = append(updated, '\n')
+	tmp := claudeJSON + ".tmp"
+	if err := os.WriteFile(tmp, updated, 0o600); err != nil {
+		return
+	}
+	os.Rename(tmp, claudeJSON)
 }
 
 func GetDefaultBranch(repoDir string) (string, error) {
