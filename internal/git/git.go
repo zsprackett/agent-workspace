@@ -133,10 +133,21 @@ func RemoveWorktree(repoDir, worktreePath string, force bool) error {
 		args = append(args, "--force")
 	}
 	args = append(args, worktreePath)
-	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
-		return fmt.Errorf("remove worktree: %s", out)
+	out, err := exec.Command("git", args...).CombinedOutput()
+	if err == nil {
+		return nil
 	}
-	return nil
+	msg := string(out)
+	// If git doesn't recognize the path as a working tree, prune stale refs
+	// and remove the directory directly.
+	if strings.Contains(msg, "is not a working tree") {
+		exec.Command("git", "-C", repoDir, "worktree", "prune").Run()
+		if rmErr := os.RemoveAll(worktreePath); rmErr != nil {
+			return fmt.Errorf("remove worktree directory: %w", rmErr)
+		}
+		return nil
+	}
+	return fmt.Errorf("remove worktree: %s", msg)
 }
 
 func GetDefaultBranch(repoDir string) (string, error) {
